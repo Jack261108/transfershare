@@ -7,6 +7,7 @@ import time
 import re
 import posixpath
 from threading import Lock
+import random
 
 class BaiduStorage:
     def __init__(self, cookies):
@@ -15,6 +16,50 @@ class BaiduStorage:
         self._init_client(cookies)
         self.last_request_time = 0
         self.min_request_interval = 2
+        # GitHub Actions环境检测
+        self.is_github_actions = os.getenv('GITHUB_ACTIONS') == 'true'
+        # 在GitHub Actions环境中使用更长的重试间隔
+        self.retry_delay = 10 if self.is_github_actions else 3
+        self.max_retries = 5 if self.is_github_actions else 3
+        
+    def _retry_on_network_error(self, func, *args, **kwargs):
+        """网络请求重试装饰器"""
+        last_error = None
+        
+        for attempt in range(self.max_retries):
+            try:
+                # 在GitHub Actions环境中添加随机延迟
+                if self.is_github_actions and attempt > 0:
+                    delay = self.retry_delay + random.uniform(0, 5)
+                    print(f"第{attempt + 1}次重试，等待{delay:.1f}秒...")
+                    time.sleep(delay)
+                elif attempt > 0:
+                    time.sleep(self.retry_delay)
+                
+                # 执行请求
+                return func(*args, **kwargs)
+                
+            except Exception as e:
+                last_error = e
+                error_str = str(e)
+                
+                # 判断是否为网络相关错误
+                if any(keyword in error_str.lower() for keyword in [
+                    'baidupcs._request', 'network', 'timeout', 'connection', 
+                    'urllib', 'requests', 'http', 'ssl'
+                ]):
+                    if attempt < self.max_retries - 1:
+                        print(f"网络请求失败（第{attempt + 1}次尝试）: {error_str}")
+                        continue
+                    else:
+                        print(f"网络请求最终失败，已重试{self.max_retries}次")
+                        break
+                else:
+                    # 非网络错误，直接抛出
+                    raise e
+        
+        # 所有重试都失败，抛出最后一个错误
+        raise last_error
         
     def _init_client(self, cookies):
         """初始化客户端"""
@@ -1042,10 +1087,11 @@ class BaiduStorage:
                     if progress_callback:
                         progress_callback('info', f'使用密码访问分享链接')
                 
-                self.client.access_shared(share_url, pwd)
+                # 使用重试机制访问分享链接
+                self._retry_on_network_error(self.client.access_shared, share_url, pwd)
                 
                 # 步骤1.1：获取分享文件列表并记录
-                shared_paths = self.client.shared_paths(shared_url=share_url)
+                shared_paths = self._retry_on_network_error(self.client.shared_paths, shared_url=share_url)
                 if not shared_paths:
                     if progress_callback:
                         progress_callback('error', '获取分享文件列表失败')
@@ -1186,7 +1232,9 @@ class BaiduStorage:
                     try:
                         # 确保客户端和参数都有效
                         if self.client and uk is not None and share_id is not None and bdstoken is not None:
-                            self.client.transfer_shared_paths(
+                            # 使用重试机制执行转存
+                            self._retry_on_network_error(
+                                self.client.transfer_shared_paths,
                                 remotedir=dir_path,
                                 fs_ids=fs_ids,
                                 uk=int(uk),
@@ -1206,8 +1254,10 @@ class BaiduStorage:
                                 progress_callback('warning', '触发频率限制，等待10秒后重试...')
                             time.sleep(10)
                             try:
+                                # 使用重试机制重试转存
                                 if self.client and uk is not None and share_id is not None and bdstoken is not None:
-                                    self.client.transfer_shared_paths(
+                                    self._retry_on_network_error(
+                                        self.client.transfer_shared_paths,
                                         remotedir=dir_path,
                                         fs_ids=fs_ids,
                                         uk=int(uk),

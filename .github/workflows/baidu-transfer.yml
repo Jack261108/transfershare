@@ -30,5 +30,13 @@ jobs:
         SHARE_URLS: ${{ secrets.SHARE_URLS }}
         SAVE_DIR: ${{ secrets.SAVE_DIR }}
         WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
+        # GitHub Actions环境标识
+        GITHUB_ACTIONS: 'true'
       run: |
+        # 设置网络超时参数
+        export PYTHONUNBUFFERED=1
+        # 显示网络信息
+        echo "网络环境信息:"
+        curl -s https://ipinfo.io/json || echo "无法获取IP信息"
+        # 执行转存任务
         python transfer_runner.py

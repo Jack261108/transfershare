@@ -27,7 +27,39 @@ def get_env_config():
     
     return config
 
-def progress_callback(level, message):
+def check_network_connectivity():
+    """检查网络连通性"""
+    try:
+        import requests
+        # 检查是否在GitHub Actions环境
+        if os.getenv('GITHUB_ACTIONS') == 'true':
+            print("检测到GitHub Actions环境，正在检查网络连通性...")
+            
+            # 检查基本网络
+            try:
+                response = requests.get('https://www.baidu.com', timeout=10)
+                if response.status_code == 200:
+                    print("✅ 百度主站连通正常")
+                else:
+                    print(f"⚠️ 百度主站连通异常: HTTP {response.status_code}")
+            except Exception as e:
+                print(f"❌ 百度主站连通失败: {str(e)}")
+                
+            # 检查百度网盘API
+            try:
+                response = requests.get('https://pan.baidu.com', timeout=10)
+                if response.status_code == 200:
+                    print("✅ 百度网盘连通正常")
+                else:
+                    print(f"⚠️ 百度网盘连通异常: HTTP {response.status_code}")
+            except Exception as e:
+                print(f"❌ 百度网盘连通失败: {str(e)}")
+                print("提示: GitHub Actions环境可能存在网络访问限制")
+                
+    except ImportError:
+        print("网络检查跳过: requests库不可用")
+    except Exception as e:
+        print(f"网络检查异常: {str(e)}")
     """进度回调函数"""
     # 简化输出，不使用日志系统
     if level == 'error':
@@ -45,6 +77,9 @@ def main():
     print("百度网盘自动转存任务开始")
     print(f"执行时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
+    
+    # 检查网络连通性
+    check_network_connectivity()
     
     config = None
     notifier = None
