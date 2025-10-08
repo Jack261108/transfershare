@@ -72,20 +72,41 @@ class WeChatNotifier:
         """
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
-        if result['success']:
+        # 安全获取配置信息
+        save_dir = config.get('save_dir', '默认') if config else '默认'
+        
+        # 计算总链接数和任务描述
+        total_count = result.get('total_count', 1)
+        if total_count > 1:
+            task_desc = f'批量转存任务 ({total_count}个链接)'
+        else:
+            task_desc = '转存任务'
+        
+        if result.get('success'):
             if result.get('skipped'):
                 # 没有新文件需要转存
                 result_msg = result.get('message') or result.get('summary', '没有新文件需要转存')
                 message = f"""## 📋 百度网盘转存报告
 **时间**: {current_time}
 **状态**: ✅ 完成（无新文件）
-**分享链接**: 批量转存任务
-**保存目录**: {config.get('save_dir', '默认')}
+**任务**: {task_desc}
+**保存目录**: {save_dir}
 **结果**: {result_msg}"""
             else:
                 # 转存成功
                 transferred_files = result.get('transferred_files', [])
                 result_msg = result.get('message') or result.get('summary', '转存成功')
+                
+                # 处理批量转存的文件列表
+                if 'results' in result:
+                    # 从批量结果中收集所有成功转存的文件
+                    all_transferred_files = []
+                    for res in result['results']:
+                        if res.get('success') and not res.get('skipped'):
+                            files = res.get('transferred_files', [])
+                            all_transferred_files.extend(files)
+                    transferred_files = all_transferred_files
+                
                 files_info = ""
                 if transferred_files:
                     # 显示前5个文件
@@ -97,8 +118,8 @@ class WeChatNotifier:
                 message = f"""## 🎉 百度网盘转存报告
 **时间**: {current_time}
 **状态**: ✅ 转存成功
-**分享链接**: 批量转存任务
-**保存目录**: {config.get('save_dir', '默认')}
+**任务**: {task_desc}
+**保存目录**: {save_dir}
 **结果**: {result_msg}{files_info}"""
         else:
             # 转存失败
@@ -106,8 +127,8 @@ class WeChatNotifier:
             message = f"""## ❌ 百度网盘转存报告
 **时间**: {current_time}
 **状态**: ❌ 转存失败
-**分享链接**: 批量转存任务
-**保存目录**: {config.get('save_dir', '默认')}
+**任务**: {task_desc}
+**保存目录**: {save_dir}
 **错误信息**: {error_msg}
 
 请检查分享链接是否有效，或查看详细日志排查问题。"""
@@ -123,10 +144,14 @@ class WeChatNotifier:
         """
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
+        # 安全获取配置信息
+        save_dir = config.get('save_dir', '默认') if config else '默认'
+        
         message = f"""## ⚠️ 百度网盘转存异常
 **时间**: {current_time}
 **状态**: ❌ 执行异常
-**任务类型**: 批量转存任务
+**任务类型**: 自动转存任务
+**保存目录**: {save_dir}
 **错误信息**: {error_msg}
 
 请检查配置或联系管理员处理。"""
