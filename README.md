@@ -7,9 +7,9 @@
 - ✅ 自动转存百度网盘分享链接中的文件
 - ✅ 支持密码保护的分享链接
 - ✅ 支持批量转存多个分享链接
-- ✅ 智能解析文本中的分享链接和提取码
+- ✅ 支持带密码参数的分享链接格式
+- ✅ 支持在链接后指定保存目录
 - ✅ 自动去重，跳过已存在的文件
-- ✅ 支持正则表达式文件过滤和重命名
 - ✅ 详细的执行日志和进度跟踪
 - ✅ 每两小时自动执行
 - ✅ 支持手动触发
@@ -32,42 +32,16 @@
   BDUSS=your_bduss_value; STOKEN=your_stoken_value
   ```
 
-- **`SHARE_URL`** (必需): 要转存的分享链接（单个链接）
+- **`SHARE_URLS`** (必需): 批量转存的分享链接文本
   ```
-  https://pan.baidu.com/s/1xxxxxxxxx
-  ```
-
-- **`SHARE_URLS`** (可选): 批量转存的分享链接文本（模式1）
-  ```
-  https://pan.baidu.com/s/1example1 提取码：1234
-  https://pan.baidu.com/s/1example2 密码:5678
-  https://pan.baidu.com/s/1example3
-  ```
-
-- **`SHARE_CONFIGS`** (可选): JSON格式的批量配置（模式2）
-  ```json
-  [
-    {
-      "share_url": "https://pan.baidu.com/s/1example1",
-      "pwd": "1234",
-      "save_dir": "/转存目录/文件夹1",
-      "regex_pattern": ".*\\.(mp4|mkv|avi)$",
-      "regex_replace": ""
-    },
-    {
-      "share_url": "https://pan.baidu.com/s/1example2",
-      "pwd": "5678",
-      "save_dir": "/转存目录/文件夹2"
-    }
-  ]
+  https://pan.baidu.com/s/1NXEVkmQFfTeB9gvgBYdX0A?pwd=f9c7
+  https://pan.baidu.com/s/1example2?pwd=5678 /保存目录/子文件夹
+  https://pan.baidu.com/s/1example3?pwd=abcd /我的文件/资料
   ```
 
 #### 可选的 Secrets：
 
-- **`SHARE_PASSWORD`**: 分享链接的提取码（如果有密码）
-  ```
-  abcd
-  ```
+
 
 - **`SAVE_DIR`**: 保存目录，默认为 `/AutoTransfer`
   ```
@@ -138,90 +112,43 @@ python test_wechat.py
 3. 如果有错误，可以在日志中查看详细信息
 4. 如果配置了企业微信机器人，会自动收到执行结果通知
 
-## 批量转存使用方法
+## 分享链接格式说明
 
-本项目支持三种批量转存模式：
+本项目仅支持带密码参数的百度网盘分享链接格式：
 
-### 模式1：文本解析模式
-
-使用 `SHARE_URLS` 变量，将多个分享链接和提取码放在文本中：
+### 链接格式
 
 ```
-第一个资源：
-https://pan.baidu.com/s/1example1
-提取码：1234
-
-第二个资源:
-链接: https://pan.baidu.com/s/1example2 
-密码: 5678
-
-第三个资源（带pwd参数）：
-https://pan.baidu.com/s/1example3?pwd=abcd
-
-第四个资源（传统格式）：
-https://pan.baidu.com/s/1example4
-pwd: efgh
-
-无密码分享：https://pan.baidu.com/s/1example5
+https://pan.baidu.com/s/xxxxxxxxxx?pwd=xxxx
 ```
 
-**支持的链接格式：**
-- `https://pan.baidu.com/s/xxxxxxx` （传统格式）
-- `https://pan.baidu.com/s/xxxxxxx?pwd=xxxx` （带pwd参数）
-- `https://yun.baidu.com/s/xxxxxxx` （旧域名）
+### 使用方法
 
-**支持的提取码格式：**
-- URL参数：`?pwd=xxxx` （优先级最高）
-- 中文：`提取码：xxxx`、`密码：xxxx`
-- 英文：`password:xxxx`、`pwd:xxxx`
-- 单独的4位字符（行尾）
+在 `SHARE_URLS` 中填入分享链接，每行一个：
 
-系统会自动识别分享链接和对应的提取码。
-
-### 模式2：JSON配置模式
-
-使用 `SHARE_CONFIGS` 变量，支持更精细的配置：
-
-```json
-[
-  {
-    "share_url": "https://pan.baidu.com/s/1example1",
-    "pwd": "1234",
-    "save_dir": "/转存目录/视频文件",
-    "regex_pattern": ".*\\.(mp4|mkv|avi)$",
-    "regex_replace": ""
-  },
-  {
-    "share_url": "https://pan.baidu.com/s/1example2",
-    "pwd": "5678",
-    "save_dir": "/转存目录/文档文件",
-    "regex_pattern": "(.+)\\.(txt|doc|pdf)$",
-    "regex_replace": "文档_\\1.\\2"
-  }
-]
+```
+https://pan.baidu.com/s/1NXEVkmQFfTeB9gvgBYdX0A?pwd=f9c7
+https://pan.baidu.com/s/1example2?pwd=5678 /保存目录/子文件夹
+https://pan.baidu.com/s/1example3?pwd=abcd /我的文件/资料
 ```
 
-参数说明：
-- `share_url`: 分享链接（必需）
-- `pwd`: 提取码（可选）
-- `save_dir`: 保存目录（可选，默认使用 SAVE_DIR）
-- `regex_pattern`: 正则表达式过滤文件（可选）
-- `regex_replace`: 正则替换重命名（可选）
+### 保存目录指定
 
-### 模式3：单个链接模式
-
-使用传统的 `SHARE_URL` 和 `SHARE_PASSWORD` 变量转存单个链接。
+可以在链接后面空格分隔指定保存目录：
+- 如果不指定保存目录，将使用默认的 `SAVE_DIR` 变量值
+- 如果指定了保存目录，必须以 `/` 开头
+- 保存目录会自动创建（如果不存在）
 
 ### 本地使用示例
 
-查看 `batch_transfer_example.py` 文件了解如何在本地使用批量转存功能：
+查看 `example_simple_format.py` 文件了解如何在本地使用：
 
 ```bash
 # 设置环境变量
 export BAIDU_COOKIES="BDUSS=xxx; STOKEN=xxx"
 
 # 运行示例
-python batch_transfer_example.py
+python example_simple_format.py
 ```
 
 
@@ -231,19 +158,23 @@ python batch_transfer_example.py
 - 错误信息: "cookies 无效" 或 "客户端初始化失败"
 - 解决方法: 重新获取百度网盘的 cookies 并更新 BAIDU_COOKIES
 
-### 2. 分享链接失效
+### 2. 分享链接格式错误
+- 错误信息: "格式不支持" 或 "链接解析失败"
+- 解决方法: 检查链接是否为 https://pan.baidu.com/s/xxxxx?pwd=xxxx 格式
+
+### 3. 分享链接失效
 - 错误信息: "分享链接已失效" 或 "error_code: 145"
 - 解决方法: 检查分享链接是否还有效，更新 SHARE_URL
 
-### 3. 提取码错误
+### 4. 提取码错误
 - 错误信息: "提取码输入错误" 或 "error_code: 200025"
 - 解决方法: 检查并更新 SHARE_PASSWORD
 
-### 4. 频率限制
+### 5. 频率限制
 - 错误信息: "error_code: -65" 或 "触发频率限制"
 - 解决方法: 等待一段时间后重新运行，或调整执行频率
 
-### 5. 企业微信通知问题
+### 6. 企业微信通知问题
 - 错误信息: "企业微信通知发送失败"
 - 解决方法: 
   - 检查 WECHAT_WEBHOOK 是否正确
@@ -262,10 +193,11 @@ python batch_transfer_example.py
 
 ## 注意事项
 
-1. **Cookies 安全**: 请妥善保管您的百度网盘 cookies，不要泄露给他人
-2. **执行频率**: 建议不要设置过高的执行频率，以免触发百度的频率限制
-3. **存储空间**: 请确保您的百度网盘有足够的存储空间
-4. **分享链接**: 请确保分享链接的有效性和合法性
+1. **链接格式**: 仅支持 https://pan.baidu.com/s/xxxxx?pwd=xxxx 格式的分享链接
+2. **Cookies 安全**: 请妖善保管您的百度网盘 cookies，不要泄露给他人
+3. **执行频率**: 建议不要设置过高的执行频率，以免触发百度的频率限制
+4. **存储空间**: 请确保您的百度网盘有足够的存储空间
+5. **分享链接**: 请确保分享链接的有效性和合法性
 
 ## 许可证
 
