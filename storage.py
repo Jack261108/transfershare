@@ -19,8 +19,8 @@ class BaiduStorage:
         # GitHub Actions环境检测
         self.is_github_actions = os.getenv('GITHUB_ACTIONS') == 'true'
         # 在GitHub Actions环境中使用更长的重试间隔
-        self.retry_delay = 10 if self.is_github_actions else 3
-        self.max_retries = 5 if self.is_github_actions else 3
+        self.retry_delay = 2 if self.is_github_actions else 1
+        self.max_retries = 3 if self.is_github_actions else 2
         
     def _retry_on_network_error(self, func, *args, **kwargs):
         """网络请求重试装饰器"""
