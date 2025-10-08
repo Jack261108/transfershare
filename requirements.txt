@@ -1,3 +1,2 @@
 baidupcs-py>=0.7.0
-loguru>=0.6.0
 requests>=2.25.0

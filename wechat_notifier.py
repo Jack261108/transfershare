@@ -4,7 +4,7 @@
 import json
 import requests
 from datetime import datetime
-from loguru import logger
+
 
 class WeChatNotifier:
     def __init__(self, webhook_url):
@@ -50,17 +50,17 @@ class WeChatNotifier:
             if response.status_code == 200:
                 result = response.json()
                 if result.get('errcode') == 0:
-                    logger.success("企业微信通知发送成功")
+                    print("企业微信通知发送成功")
                     return True
                 else:
-                    logger.error(f"企业微信通知发送失败: {result.get('errmsg', '未知错误')}")
+                    print(f"企业微信通知发送失败: {result.get('errmsg', '未知错误')}")
                     return False
             else:
-                logger.error(f"企业微信通知发送失败: HTTP {response.status_code}")
+                print(f"企业微信通知发送失败: HTTP {response.status_code}")
                 return False
                 
         except Exception as e:
-            logger.error(f"发送企业微信通知时出错: {str(e)}")
+            print(f"发送企业微信通知时出错: {str(e)}")
             return False
     
     def send_transfer_result(self, result, config):

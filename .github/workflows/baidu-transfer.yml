@@ -33,11 +33,3 @@ jobs:
         WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
       run: |
         python transfer_runner.py
-        
-    - name: Upload logs
-      if: always()
-      uses: actions/upload-artifact@v3
-      with:
-        name: transfer-logs
-        path: logs/
-        retention-days: 7
