@@ -164,11 +164,11 @@ python example_simple_format.py
 
 ### 3. 分享链接失效
 - 错误信息: "分享链接已失效" 或 "error_code: 145"
-- 解决方法: 检查分享链接是否还有效，更新 SHARE_URL
+- 解决方法: 检查分享链接是否还有效，更新 SHARE_URLS
 
-### 4. 提取码错误
-- 错误信息: "提取码输入错误" 或 "error_code: 200025"
-- 解决方法: 检查并更新 SHARE_PASSWORD
+### 4. 分享链接格式错误
+- 错误信息: "格式不支持" 或 "链接解析失败"
+- 解决方法: 检查链接是否为 https://pan.baidu.com/s/xxxxx?pwd=xxxx 格式
 
 ### 5. 频率限制
 - 错误信息: "error_code: -65" 或 "触发频率限制"

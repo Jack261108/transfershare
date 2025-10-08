@@ -27,8 +27,7 @@ jobs:
     - name: Run transfer task
       env:
         BAIDU_COOKIES: ${{ secrets.BAIDU_COOKIES }}
-        SHARE_URL: ${{ secrets.SHARE_URL }}
-        SHARE_PASSWORD: ${{ secrets.SHARE_PASSWORD }}
+        SHARE_URLS: ${{ secrets.SHARE_URLS }}
         SAVE_DIR: ${{ secrets.SAVE_DIR }}
         WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
       run: |
