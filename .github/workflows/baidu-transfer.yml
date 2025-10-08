@@ -2,8 +2,8 @@ name: Baidu Transfer Task
 
 on:
   schedule:
-    # 每两小时执行一次 (UTC时间)
-    - cron: '0 */2 * * *'
+    # 每六小时执行一次 (UTC时间)
+    - cron: '0 */6 * * *'
   workflow_dispatch: # 允许手动触发
 
 jobs:
@@ -24,7 +24,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         
-    - name: Run transfer task
+    - name: Run transfer task (First attempt)
+      id: first_attempt
+      timeout-minutes: 5
+      continue-on-error: true
       env:
         BAIDU_COOKIES: ${{ secrets.BAIDU_COOKIES }}
         SHARE_URLS: ${{ secrets.SHARE_URLS }}
@@ -38,5 +41,31 @@ jobs:
         # 显示网络信息
         echo "网络环境信息:"
         curl -s https://ipinfo.io/json || echo "无法获取IP信息"
+        echo "========================================"
+        echo "开始执行转存任务 (第一次尝试)"
+        echo "超时时间: 5分钟"
+        echo "========================================"
+        # 执行转存任务
+        python transfer_runner.py
+        
+    - name: Run transfer task (Second attempt)
+      if: steps.first_attempt.outcome == 'failure'
+      timeout-minutes: 5
+      env:
+        BAIDU_COOKIES: ${{ secrets.BAIDU_COOKIES }}
+        SHARE_URLS: ${{ secrets.SHARE_URLS }}
+        SAVE_DIR: ${{ secrets.SAVE_DIR }}
+        WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
+        # GitHub Actions环境标识
+        GITHUB_ACTIONS: 'true'
+      run: |
+        # 设置网络超时参数
+        export PYTHONUNBUFFERED=1
+        echo "========================================"
+        echo "第一次尝试失败，开始第二次尝试"
+        echo "超时时间: 5分钟"
+        echo "========================================"
+        # 等待30秒后重试，避免频率限制
+        sleep 30
         # 执行转存任务
         python transfer_runner.py
