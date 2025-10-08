@@ -125,7 +125,7 @@ def main():
         # 处理结果
         if result['success']:
             if result.get('skipped'):
-                print(f"✅ 任务完成: {result['message']}")
+                print(f"✅ 任务完成: {result.get('message', result.get('summary', '转存完成'))}")
             else:
                 # 批量转存的结果可能包含多个文件
                 if 'results' in result:
@@ -146,7 +146,7 @@ def main():
                 else:
                     # 单个转存的结果
                     transferred_files = result.get('transferred_files', [])
-                    print(f"🎉 转存成功: {result['message']}")
+                    print(f"🎉 转存成功: {result.get('message', result.get('summary', '转存成功'))}")
                     if transferred_files:
                         print(f"转存文件列表 ({len(transferred_files)}个):")
                         for i, file in enumerate(transferred_files[:10], 1):  # 只显示前10个

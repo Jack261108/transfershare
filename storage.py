@@ -611,12 +611,14 @@ class BaiduStorage:
             
             return {
                 'success': success_count > 0 or skipped_count > 0,
+                'skipped': skipped_count > 0 and success_count == 0,  # 只有在只有跳过没有成功时才设置为skipped
                 'total_count': total_count,
                 'success_count': success_count,
                 'failed_count': failed_count,
                 'skipped_count': skipped_count,
                 'results': results,
-                'summary': summary
+                'summary': summary,
+                'message': summary  # 为兼容性添加message字段
             }
             
         except Exception as e:
@@ -630,7 +632,8 @@ class BaiduStorage:
                 'success_count': 0,
                 'failed_count': 0,
                 'skipped_count': 0,
-                'results': []
+                'results': [],
+                'message': error_msg  # 为兼容性添加message字段
             }
 
     def parse_share_links_from_text(self, text, default_save_dir=None):

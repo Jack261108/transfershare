@@ -75,15 +75,17 @@ class WeChatNotifier:
         if result['success']:
             if result.get('skipped'):
                 # 没有新文件需要转存
+                result_msg = result.get('message') or result.get('summary', '没有新文件需要转存')
                 message = f"""## 📋 百度网盘转存报告
 **时间**: {current_time}
 **状态**: ✅ 完成（无新文件）
 **分享链接**: 批量转存任务
 **保存目录**: {config.get('save_dir', '默认')}
-**结果**: {result['message']}"""
+**结果**: {result_msg}"""
             else:
                 # 转存成功
                 transferred_files = result.get('transferred_files', [])
+                result_msg = result.get('message') or result.get('summary', '转存成功')
                 files_info = ""
                 if transferred_files:
                     # 显示前5个文件
@@ -97,7 +99,7 @@ class WeChatNotifier:
 **状态**: ✅ 转存成功
 **分享链接**: 批量转存任务
 **保存目录**: {config.get('save_dir', '默认')}
-**结果**: {result['message']}{files_info}"""
+**结果**: {result_msg}{files_info}"""
         else:
             # 转存失败
             error_msg = result.get('error', '未知错误')
