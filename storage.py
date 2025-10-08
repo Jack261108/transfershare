@@ -640,35 +640,23 @@ class BaiduStorage:
 
     def parse_share_links_from_text(self, text, default_save_dir=None):
         """
-        从文本中解析分享链接和提取码
+        从文本中解析分享链接，只支持 https://pan.baidu.com/s/xxxxx?pwd=xxxx 格式
+        支持每个链接后面指定保存目录
+        格式示例：
+        https://pan.baidu.com/s/1NXEVkmQFfTeB9gvgBYdX0A?pwd=f9c7 /保存目录1
+        https://pan.baidu.com/s/1example123?pwd=1234 /保存目录2
+        
         Args:
             text: 包含分享链接的文本
-            default_save_dir: 默认保存目录
+            default_save_dir: 默认保存目录（当链接后没有指定目录时使用）
         Returns:
             list: 分享配置列表
         """
         try:
             share_configs = []
             
-            # 匹配百度网盘分享链接的正则表达式
-            # 支持多种格式的百度网盘链接，包括带pwd参数的
-            url_patterns = [
-                # 带pwd参数的链接：https://pan.baidu.com/s/xxxxx?pwd=xxxx
-                r'https?://pan\.baidu\.com/s/[A-Za-z0-9_-]+\?pwd=[A-Za-z0-9]{4}',
-                # 普通链接
-                r'https?://pan\.baidu\.com/s/[A-Za-z0-9_-]+',
-                r'https?://yun\.baidu\.com/s/[A-Za-z0-9_-]+',
-                r'https?://pan\.baidu\.com/share/link\?shareid=\d+&uk=\d+'
-            ]
-            
-            # 提取码的正则表达式
-            pwd_patterns = [
-                r'提取码[：:\s]*([A-Za-z0-9]{4})',
-                r'密码[：:\s]*([A-Za-z0-9]{4})',
-                r'password[：:\s]*([A-Za-z0-9]{4})',
-                r'pwd[：:\s]*([A-Za-z0-9]{4})',
-                r'([A-Za-z0-9]{4})(?=\s*$|\s*\n)',  # 单独的4位字符（行尾）
-            ]
+            # 只匹配带pwd参数的链接格式
+            url_pattern = r'https://pan\.baidu\.com/s/[A-Za-z0-9_-]+\?pwd=[A-Za-z0-9]{4}'
             
             # 按行分割文本
             lines = text.strip().split('\n')
@@ -679,71 +667,53 @@ class BaiduStorage:
                     continue
                 
                 # 查找分享链接
-                share_url = None
-                url_with_pwd = None
-                
-                for pattern in url_patterns:
-                    match = re.search(pattern, line)
-                    if match:
-                        url_with_pwd = match.group(0)
-                        # 检查是否是带pwd参数的链接
-                        if '?pwd=' in url_with_pwd:
-                            # 分离URL和密码
-                            share_url = url_with_pwd.split('?pwd=')[0]
-                        else:
-                            share_url = url_with_pwd
-                        break
-                
-                if not share_url:
+                match = re.search(url_pattern, line)
+                if not match:
                     continue
                 
-                # 首先尝试从URL参数中提取密码
-                pwd = None
-                if url_with_pwd and '?pwd=' in url_with_pwd:
-                    try:
-                        pwd_part = url_with_pwd.split('?pwd=')[1]
-                        # 提取pwd参数值（可能后面还有其他参数）
-                        pwd_match = re.match(r'([A-Za-z0-9]{4})', pwd_part)
-                        if pwd_match:
-                            pwd = pwd_match.group(1)
-                            logger.debug(f"从URL参数中提取到密码: {pwd}")
-                    except Exception as e:
-                        logger.debug(f"从URL参数提取密码失败: {str(e)}")
+                url_with_pwd = match.group(0)
                 
-                # 如果URL中没有密码，则在文本中搜索提取码
-                if not pwd:
-                    search_lines = [line]  # 当前行
-                    
-                    # 添加相邻行进行搜索
-                    if line_num > 1:
-                        search_lines.insert(0, lines[line_num - 2].strip())  # 上一行
-                    if line_num < len(lines):
-                        search_lines.append(lines[line_num].strip())  # 下一行
-                    
-                    for search_line in search_lines:
-                        for pwd_pattern in pwd_patterns:
-                            match = re.search(pwd_pattern, search_line, re.IGNORECASE)
-                            if match:
-                                pwd = match.group(1)
-                                logger.debug(f"从文本中提取到密码: {pwd}")
-                                break
-                        if pwd:
-                            break
+                # 分离URL和密码
+                try:
+                    share_url, pwd_part = url_with_pwd.split('?pwd=')
+                    pwd = pwd_part[:4]  # 取前4位作为密码
+                except ValueError:
+                    logger.warning(f"第{line_num}行链接格式错误: {line}")
+                    continue
+                
+                # 查找保存目录（在链接后面）
+                save_dir = None
+                
+                # 尝试从同一行中提取目录
+                remaining_text = line[match.end():].strip()
+                if remaining_text and remaining_text.startswith('/'):
+                    # 找到第一个空格或行尾作为目录结束
+                    save_dir = remaining_text.split()[0]
+                    logger.debug(f"从同一行提取到目录: {save_dir}")
+                
+                # 如果同一行没有目录，尝试查找下一行
+                if not save_dir and line_num < len(lines):
+                    next_line = lines[line_num].strip()
+                    if next_line and next_line.startswith('/') and not re.search(url_pattern, next_line):
+                        save_dir = next_line.split()[0]
+                        logger.debug(f"从下一行提取到目录: {save_dir}")
+                
+                # 如果没有指定目录，使用默认目录
+                if not save_dir:
+                    save_dir = default_save_dir
                 
                 # 构建配置
                 config = {
                     'share_url': share_url,
+                    'pwd': pwd,
                     'line_number': line_num
                 }
                 
-                if pwd:
-                    config['pwd'] = pwd
-                
-                if default_save_dir:
-                    config['save_dir'] = default_save_dir
+                if save_dir:
+                    config['save_dir'] = save_dir
                 
                 share_configs.append(config)
-                logger.debug(f"解析到分享链接（第{line_num}行）: {share_url}, 提取码: {pwd or '无'}")
+                logger.debug(f"解析到分享链接（第{line_num}行）: {share_url}, 密码: {pwd}, 保存目录: {save_dir or '默认'}")
             
             logger.info(f"从文本中解析到 {len(share_configs)} 个分享链接")
             return share_configs
@@ -752,9 +722,313 @@ class BaiduStorage:
             logger.error(f"解析分享链接失败: {str(e)}")
             return []
 
+    def _generate_share_save_dir(self, share_url, base_dir=None, line_num=1):
+        """
+        为分享链接生成独立的保存目录
+        Args:
+            share_url: 分享链接
+            base_dir: 基础目录
+            line_num: 行号（用于备用命名）
+        Returns:
+            str: 生成的保存目录路径
+        """
+        try:
+            # 设置默认基础目录
+            if not base_dir:
+                base_dir = '/AutoTransfer'
+            
+            # 从分享链接中提取标识符
+            share_id = None
+            
+            # 处理不同格式的链接
+            if '/s/' in share_url:
+                # https://pan.baidu.com/s/1xxxxxxx 格式
+                share_id = share_url.split('/s/')[-1]
+                # 去除可能的参数
+                if '?' in share_id:
+                    share_id = share_id.split('?')[0]
+            elif 'shareid=' in share_url:
+                # https://pan.baidu.com/share/link?shareid=xxx&uk=xxx 格式
+                import re
+                match = re.search(r'shareid=(\d+)', share_url)
+                if match:
+                    share_id = match.group(1)
+            
+            if not share_id:
+                # 如果无法提取标识符，使用行号
+                share_id = f'share_{line_num}'
+            
+            # 限制标识符长度，避免目录名过长
+            if len(share_id) > 20:
+                share_id = share_id[:20]
+            
+            # 生成目录路径
+            save_dir = f"{base_dir.rstrip('/')}/share_{share_id}"
+            
+            # 确保路径以 / 开头
+            if not save_dir.startswith('/'):
+                save_dir = '/' + save_dir
+            
+            logger.debug(f"为分享链接生成目录: {share_url} -> {save_dir}")
+            return save_dir
+            
+        except Exception as e:
+            logger.warning(f"生成保存目录失败: {str(e)}，使用默认目录")
+            fallback_dir = f"{base_dir or '/AutoTransfer'}/share_{line_num}"
+            if not fallback_dir.startswith('/'):
+                fallback_dir = '/' + fallback_dir
+            return fallback_dir
+
+    def _generate_share_save_dir_by_name(self, share_url, pwd=None, base_dir=None, line_num=1):
+        """
+        根据分享文件名生成保存目录（需要访问网络）
+        Args:
+            share_url: 分享链接
+            pwd: 提取码
+            base_dir: 基础目录
+            line_num: 行号（用于备用命名）
+        Returns:
+            str: 生成的保存目录路径
+        """
+        try:
+            # 设置默认基础目录
+            if not base_dir:
+                base_dir = '/AutoTransfer'
+            
+            # 尝试获取分享文件的名称
+            if self.client and self.is_valid():
+                folder_info = self.get_share_folder_name(share_url, pwd)
+                if folder_info.get('success') and folder_info.get('folder_name'):
+                    folder_name = folder_info['folder_name']
+                    # 清理文件名中的非法字符
+                    folder_name = re.sub(r'[<>:"/\\|?*]', '_', folder_name)
+                    # 限制文件名长度
+                    if len(folder_name) > 50:
+                        folder_name = folder_name[:50]
+                    
+                    save_dir = f"{base_dir.rstrip('/')}/{folder_name}"
+                    logger.debug(f"根据分享文件名生成目录: {folder_name} -> {save_dir}")
+                else:
+                    # 获取文件名失败，使用默认方式
+                    logger.debug(f"获取分享文件名失败，使用默认方式")
+                    save_dir = self._generate_share_save_dir(share_url, base_dir, line_num)
+            else:
+                # 客户端不可用，使用默认方式
+                save_dir = self._generate_share_save_dir(share_url, base_dir, line_num)
+            
+            # 确保路径以 / 开头
+            if not save_dir.startswith('/'):
+                save_dir = '/' + save_dir
+            
+            return save_dir
+            
+        except Exception as e:
+            logger.warning(f"根据分享文件名生成目录失败: {str(e)}，使用默认方式")
+            return self._generate_share_save_dir(share_url, base_dir, line_num)
+
+    def _generate_custom_save_dir(self, share_url, pwd=None, base_dir=None, line_num=1, share_index=1,
+                                 naming_strategy='id', custom_template=None, current_date=None, current_time=None):
+        """
+        根据指定策略生成自定义保存目录
+        Args:
+            share_url: 分享链接
+            pwd: 提取码
+            base_dir: 基础目录
+            line_num: 行号
+            share_index: 序号（从1开始）
+            naming_strategy: 命名策略
+            custom_template: 自定义模板
+            current_date: 当前日期
+            current_time: 当前时间
+        Returns:
+            str: 生成的保存目录路径
+        """
+        try:
+            # 设置默认基础目录
+            if not base_dir:
+                base_dir = '/AutoTransfer'
+            
+            folder_name = None
+            
+            # 根据不同策略生成文件夹名称
+            if naming_strategy == 'custom' and custom_template:
+                # 自定义模板模式
+                folder_name = self._apply_custom_template(
+                    custom_template, share_url, pwd, line_num, share_index, current_date, current_time
+                )
+                
+            elif naming_strategy == 'name':
+                # 基于分享文件名
+                if self.client and self.is_valid():
+                    folder_info = self.get_share_folder_name(share_url, pwd)
+                    if folder_info.get('success') and folder_info.get('folder_name'):
+                        name = folder_info['folder_name']
+                        # 清理文件名中的非法字符
+                        name = re.sub(r'[<>:"/\\|?*]', '_', name)
+                        # 限制文件名长度
+                        if len(name) > 50:
+                            name = name[:50]
+                        folder_name = name
+                        logger.debug(f"根据分享文件名生成目录: {name}")
+                    else:
+                        logger.debug(f"获取分享文件名失败，降级为ID模式")
+                        folder_name = self._extract_share_id(share_url, line_num)
+                else:
+                    logger.debug(f"客户端不可用，降级为ID模式")
+                    folder_name = self._extract_share_id(share_url, line_num)
+                    
+            elif naming_strategy == 'index':
+                # 基于序号
+                folder_name = f"Resource_{share_index:02d}"
+                
+            elif naming_strategy == 'line':
+                # 基于行号
+                folder_name = f"Line_{line_num:02d}"
+                
+            else:  # 默认为 'id'
+                # 基于分享链接ID
+                folder_name = self._extract_share_id(share_url, line_num)
+            
+            # 如果没有生成成功，使用备用方案
+            if not folder_name:
+                folder_name = f"share_{share_index}"
+            
+            # 生成完整路径
+            save_dir = f"{base_dir.rstrip('/')}/{folder_name}"
+            
+            # 确保路径以 / 开头
+            if not save_dir.startswith('/'):
+                save_dir = '/' + save_dir
+            
+            logger.debug(f"使用{naming_strategy}策略生成目录: {share_url} -> {save_dir}")
+            return save_dir
+            
+        except Exception as e:
+            logger.warning(f"生成自定义保存目录失败: {str(e)}，使用默认方式")
+            return self._generate_share_save_dir(share_url, base_dir, line_num)
+    
+    def _extract_share_id(self, share_url, line_num=1):
+        """
+        从分享链接中提取ID
+        Args:
+            share_url: 分享链接
+            line_num: 行号（备用）
+        Returns:
+            str: 提取的ID或备用名称
+        """
+        try:
+            share_id = None
+            
+            # 处理不同格式的链接
+            if '/s/' in share_url:
+                # https://pan.baidu.com/s/1xxxxxxx 格式
+                share_id = share_url.split('/s/')[-1]
+                # 去除可能的参数
+                if '?' in share_id:
+                    share_id = share_id.split('?')[0]
+            elif 'shareid=' in share_url:
+                # https://pan.baidu.com/share/link?shareid=xxx&uk=xxx 格式
+                match = re.search(r'shareid=(\d+)', share_url)
+                if match:
+                    share_id = match.group(1)
+            
+            if not share_id:
+                # 如果无法提取标识符，使用行号
+                share_id = f'line_{line_num}'
+            
+            # 限制标识符长度，避免目录名过长
+            if len(share_id) > 20:
+                share_id = share_id[:20]
+            
+            return f"share_{share_id}"
+            
+        except Exception as e:
+            logger.debug(f"提取分享链ID失败: {str(e)}")
+            return f"share_{line_num}"
+    
+    def _apply_custom_template(self, template, share_url, pwd, line_num, share_index, current_date, current_time):
+        """
+        应用自定义模板
+        Args:
+            template: 模板字符串
+            share_url: 分享链接
+            pwd: 提取码
+            line_num: 行号
+            share_index: 序号
+            current_date: 当前日期
+            current_time: 当前时间
+        Returns:
+            str: 应用模板后的字符串
+        """
+        try:
+            # 提取分享链接ID
+            share_id = self._extract_share_id(share_url, line_num).replace('share_', '')
+            
+            # 尝试获取分享文件名
+            share_name = 'unknown'
+            if self.client and self.is_valid():
+                try:
+                    folder_info = self.get_share_folder_name(share_url, pwd)
+                    if folder_info.get('success') and folder_info.get('folder_name'):
+                        share_name = folder_info['folder_name']
+                        # 清理文件名中的非法字符
+                        share_name = re.sub(r'[<>:"/\\|?*]', '_', share_name)
+                        if len(share_name) > 30:
+                            share_name = share_name[:30]
+                except Exception:
+                    pass
+            
+            # 定义可用的变量
+            variables = {
+                'id': share_id,
+                'line': line_num,
+                'index': share_index, 
+                'name': share_name,
+                'date': current_date or '',
+                'time': current_time or '',
+                'pwd': pwd or ''
+            }
+            
+            # 应用模板替换
+            result = template
+            for key, value in variables.items():
+                # 支持格式化，如 {index:02d}
+                pattern = r'\{' + key + r'(?::[^}]+)?\}'
+                if re.search(pattern, result):
+                    try:
+                        # 尝试使用Python格式化
+                        temp_template = result
+                        for match in re.finditer(pattern, result):
+                            placeholder = match.group(0)
+                            try:
+                                formatted_value = placeholder.format(**{key: value})
+                                temp_template = temp_template.replace(placeholder, str(formatted_value))
+                            except (ValueError, KeyError):
+                                # 如果格式化失败，使用原始值
+                                temp_template = temp_template.replace(placeholder, str(value))
+                        result = temp_template
+                    except Exception:
+                        # 简单替换
+                        result = result.replace(f'{{{key}}}', str(value))
+            
+            # 清理文件名中的非法字符
+            result = re.sub(r'[<>:"/\\|?*]', '_', result)
+            
+            # 限制长度
+            if len(result) > 100:
+                result = result[:100]
+            
+            logger.debug(f"应用自定义模板: {template} -> {result}")
+            return result
+            
+        except Exception as e:
+            logger.warning(f"应用自定义模板失败: {str(e)}，使用备用名称")
+            return f"custom_{share_index}"
+
     def transfer_shares_from_text(self, text, default_save_dir=None, progress_callback=None):
         """
         从文本中解析并批量转存分享链接
+        只支持 https://pan.baidu.com/s/xxxxx?pwd=xxxx 格式
         Args:
             text: 包含分享链接的文本
             default_save_dir: 默认保存目录
@@ -771,7 +1045,7 @@ class BaiduStorage:
             share_configs = self.parse_share_links_from_text(text, default_save_dir)
             
             if not share_configs:
-                error_msg = '文本中未找到有效的分享链接'
+                error_msg = '文本中未找到有效的分享链接，请确保使用 https://pan.baidu.com/s/xxxxx?pwd=xxxx 格式'
                 logger.warning(error_msg)
                 if progress_callback:
                     progress_callback('warning', error_msg)
