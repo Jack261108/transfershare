@@ -60,6 +60,8 @@ def check_network_connectivity():
         print("网络检查跳过: requests库不可用")
     except Exception as e:
         print(f"网络检查异常: {str(e)}")
+
+def progress_callback(level, message):
     """进度回调函数"""
     # 简化输出，不使用日志系统
     if level == 'error':
