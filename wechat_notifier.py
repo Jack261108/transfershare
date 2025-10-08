@@ -78,8 +78,8 @@ class WeChatNotifier:
                 message = f"""## 📋 百度网盘转存报告
 **时间**: {current_time}
 **状态**: ✅ 完成（无新文件）
-**分享链接**: {config['share_url']}
-**保存目录**: {config['save_dir']}
+**分享链接**: 批量转存任务
+**保存目录**: {config.get('save_dir', '默认')}
 **结果**: {result['message']}"""
             else:
                 # 转存成功
@@ -95,8 +95,8 @@ class WeChatNotifier:
                 message = f"""## 🎉 百度网盘转存报告
 **时间**: {current_time}
 **状态**: ✅ 转存成功
-**分享链接**: {config['share_url']}
-**保存目录**: {config['save_dir']}
+**分享链接**: 批量转存任务
+**保存目录**: {config.get('save_dir', '默认')}
 **结果**: {result['message']}{files_info}"""
         else:
             # 转存失败
@@ -104,8 +104,8 @@ class WeChatNotifier:
             message = f"""## ❌ 百度网盘转存报告
 **时间**: {current_time}
 **状态**: ❌ 转存失败
-**分享链接**: {config['share_url']}
-**保存目录**: {config['save_dir']}
+**分享链接**: 批量转存任务
+**保存目录**: {config.get('save_dir', '默认')}
 **错误信息**: {error_msg}
 
 请检查分享链接是否有效，或查看详细日志排查问题。"""
@@ -124,7 +124,7 @@ class WeChatNotifier:
         message = f"""## ⚠️ 百度网盘转存异常
 **时间**: {current_time}
 **状态**: ❌ 执行异常
-**分享链接**: {config.get('share_url', '未知')}
+**任务类型**: 批量转存任务
 **错误信息**: {error_msg}
 
 请检查配置或联系管理员处理。"""

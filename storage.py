@@ -187,6 +187,10 @@ class BaiduStorage:
             str: 用户友好的错误信息
         """
         try:
+            # 检查BaiduPCS._request错误
+            if 'BaiduPCS._request' in error_str:
+                return '网络请求失败，请检查网络连接或稍后重试'
+            
             # 检查错误码115（分享文件禁止分享）
             if 'error_code: 115' in error_str:
                 return '分享链接已失效（文件禁止分享）'
@@ -205,6 +209,10 @@ class BaiduStorage:
                 
             if 'password' in error_str.lower() and 'wrong' in error_str.lower():
                 return '提取码错误'
+            
+            # 检查cookies相关错误
+            if 'BDUSS' in error_str or 'STOKEN' in error_str or 'cookie' in error_str.lower():
+                return '百度网盘登录已过期，请更新cookies'
                 
             # 如果包含复杂的JSON错误信息，尝试简化
             if '{' in error_str and 'errno' in error_str:

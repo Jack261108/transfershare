@@ -90,16 +90,34 @@ def main():
             if result.get('skipped'):
                 print(f"✅ 任务完成: {result['message']}")
             else:
-                transferred_files = result.get('transferred_files', [])
-                print(f"🎉 转存成功: {result['message']}")
-                if transferred_files:
-                    print(f"转存文件列表 ({len(transferred_files)}个):")
-                    for i, file in enumerate(transferred_files[:10], 1):  # 只显示前10个
-                        print(f"  {i}. {file}")
-                    if len(transferred_files) > 10:
-                        print(f"  ... 还有 {len(transferred_files) - 10} 个文件")
+                # 批量转存的结果可能包含多个文件
+                if 'results' in result:
+                    # 显示整体结果
+                    print(f"🎉 批量转存成功: {result['summary']}")
+                    successful_results = [r for r in result['results'] if r.get('success') and not r.get('skipped')]
+                    all_transferred_files = []
+                    for res in successful_results:
+                        if 'transferred_files' in res:
+                            all_transferred_files.extend(res['transferred_files'])
+                    
+                    if all_transferred_files:
+                        print(f"转存文件列表 ({len(all_transferred_files)}个):")
+                        for i, file in enumerate(all_transferred_files[:10], 1):  # 只显示前10个
+                            print(f"  {i}. {file}")
+                        if len(all_transferred_files) > 10:
+                            print(f"  ... 还有 {len(all_transferred_files) - 10} 个文件")
+                else:
+                    # 单个转存的结果
+                    transferred_files = result.get('transferred_files', [])
+                    print(f"🎉 转存成功: {result['message']}")
+                    if transferred_files:
+                        print(f"转存文件列表 ({len(transferred_files)}个):")
+                        for i, file in enumerate(transferred_files[:10], 1):  # 只显示前10个
+                            print(f"  {i}. {file}")
+                        if len(transferred_files) > 10:
+                            print(f"  ... 还有 {len(transferred_files) - 10} 个文件")
         else:
-            error_msg = result.get('error', '未知错误')
+            error_msg = result.get('error', result.get('summary', '未知错误'))
             print(f"❌ 转存失败: {error_msg}")
         
         # 发送企业微信通知
