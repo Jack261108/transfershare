@@ -1,0 +1,43 @@
+name: Baidu Transfer Task
+
+on:
+  schedule:
+    # 每两小时执行一次 (UTC时间)
+    - cron: '0 */2 * * *'
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Run transfer task
+      env:
+        BAIDU_COOKIES: ${{ secrets.BAIDU_COOKIES }}
+        SHARE_URL: ${{ secrets.SHARE_URL }}
+        SHARE_PASSWORD: ${{ secrets.SHARE_PASSWORD }}
+        SAVE_DIR: ${{ secrets.SAVE_DIR }}
+        WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
+      run: |
+        python transfer_runner.py
+        
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: transfer-logs
+        path: logs/
+        retention-days: 7
