@@ -27,21 +27,8 @@ jobs:
     - name: Run transfer task
       env:
         BAIDU_COOKIES: ${{ secrets.BAIDU_COOKIES }}
-        SHARE_URL: ${{ secrets.SHARE_URL }}
-        SHARE_PASSWORD: ${{ secrets.SHARE_PASSWORD }}
+        SHARE_URLS: ${{ secrets.SHARE_URLS }}
         SAVE_DIR: ${{ secrets.SAVE_DIR }}
         WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
       run: |
-<<<<<<< HEAD
         python transfer_runner.py
-=======
-        python transfer_runner.py
-        
-    - name: Upload logs
-      if: always()
-      uses: actions/upload-artifact@v2  # 更新为 v2
-      with:
-        name: transfer-logs
-        path: logs/
-        retention-days: 7
->>>>>>> c5ea0980d4c9777f69cc5e0ff21e362a32650700

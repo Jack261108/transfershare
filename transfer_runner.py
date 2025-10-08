@@ -14,8 +14,7 @@ def get_env_config():
     """从环境变量获取配置"""
     config = {
         'cookies': os.getenv('BAIDU_COOKIES'),
-        'share_url': os.getenv('SHARE_URL'),
-        'share_password': os.getenv('SHARE_PASSWORD'),
+        'share_urls': os.getenv('SHARE_URLS'),
         'save_dir': os.getenv('SAVE_DIR', '/AutoTransfer'),
         'wechat_webhook': os.getenv('WECHAT_WEBHOOK')
     }
@@ -23,8 +22,8 @@ def get_env_config():
     # 检查必需的配置
     if not config['cookies']:
         raise ValueError("BAIDU_COOKIES 环境变量未设置")
-    if not config['share_url']:
-        raise ValueError("SHARE_URL 环境变量未设置")
+    if not config['share_urls']:
+        raise ValueError("SHARE_URLS 环境变量未设置")
     
     return config
 
@@ -54,9 +53,8 @@ def main():
         # 获取配置
         config = get_env_config()
         print("配置信息:")
-        print(f"  分享链接: {config['share_url']}")
+        print(f"  分享链接数量: {len(config['share_urls'].strip().split('\n')) if config['share_urls'] else 0} 个")
         print(f"  保存目录: {config['save_dir']}")
-        print(f"  提取码: {'已设置' if config['share_password'] else '无'}")
         print(f"  企业微信通知: {'已配置' if config['wechat_webhook'] else '未配置'}")
         
         # 初始化企业微信通知器
@@ -77,11 +75,10 @@ def main():
             print(f"网盘空间: {quota_info['used_gb']}GB / {quota_info['total_gb']}GB")
         
         # 执行转存
-        print("开始执行转存任务...")
-        result = storage.transfer_share(
-            share_url=config['share_url'],
-            pwd=config['share_password'],
-            save_dir=config['save_dir'],
+        print("开始执行批量转存任务...")
+        result = storage.transfer_shares_from_text(
+            text=config['share_urls'],
+            default_save_dir=config['save_dir'],
             progress_callback=progress_callback
         )
         
