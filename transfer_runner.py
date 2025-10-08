@@ -53,7 +53,10 @@ def main():
         # 获取配置
         config = get_env_config()
         print("配置信息:")
-        print(f"  分享链接数量: {len(config['share_urls'].strip().split('\n')) if config['share_urls'] else 0} 个")
+        # 修复f-string中不能使用反斜杠的问题
+        newline = '\n'
+        share_count = len(config['share_urls'].strip().split(newline)) if config['share_urls'] else 0
+        print(f"  分享链接数量: {share_count} 个")
         print(f"  保存目录: {config['save_dir']}")
         print(f"  企业微信通知: {'已配置' if config['wechat_webhook'] else '未配置'}")
         
