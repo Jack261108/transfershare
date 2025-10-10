@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json
+from zoneinfo import ZoneInfo
 import requests
 from datetime import datetime
 
@@ -70,7 +71,7 @@ class WeChatNotifier:
             result: 转存结果字典
             config: 配置信息
         """
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        current_time = datetime.now(ZoneInfo("Asia/Shanghai")).strftime('%Y-%m-%d %H:%M:%S')
         
         # 安全获取配置信息
         save_dir = config.get('save_dir', '默认') if config else '默认'
