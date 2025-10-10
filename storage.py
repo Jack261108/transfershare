@@ -1092,7 +1092,8 @@ class BaiduStorage:
                 
                 # 使用重试机制访问分享链接
                 self._retry_on_network_error(self.client.access_shared, share_url, pwd)
-                
+                if progress_callback:
+                     progress_callback('info', '开始获取共享文件文件列表')
                 # 步骤1.1：获取分享文件列表并记录
                 shared_paths = self._retry_on_network_error(self.client.shared_paths, shared_url=share_url)
                 if not shared_paths:

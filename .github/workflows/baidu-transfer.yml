@@ -18,6 +18,9 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
+        cache: 'pip'
+        cache-dependency-path: 'requirements.txt'
+
         
     - name: Install dependencies
       run: |
@@ -26,7 +29,7 @@ jobs:
         
     - name: Run transfer task (First attempt)
       id: first_attempt
-      timeout-minutes: 3
+      timeout-minutes: 4
       continue-on-error: true
       env:
         BAIDU_COOKIES: ${{ secrets.BAIDU_COOKIES }}
@@ -43,14 +46,14 @@ jobs:
         curl -s https://ipinfo.io/json || echo "无法获取IP信息"
         echo "========================================"
         echo "开始执行转存任务 (第一次尝试)"
-        echo "超时时间: 3分钟"
+        echo "超时时间: 4分钟"
         echo "========================================"
         # 执行转存任务
         python transfer_runner.py
         
     - name: Run transfer task (Second attempt)
       if: steps.first_attempt.outcome == 'failure'
-      timeout-minutes: 3
+      timeout-minutes: 5
       env:
         BAIDU_COOKIES: ${{ secrets.BAIDU_COOKIES }}
         SHARE_URLS: ${{ secrets.SHARE_URLS }}
@@ -63,7 +66,7 @@ jobs:
         export PYTHONUNBUFFERED=1
         echo "========================================"
         echo "第一次尝试失败，开始第二次尝试"
-        echo "超时时间: 3分钟"
+        echo "超时时间: 5分钟"
         echo "========================================"
         # 等待5秒后重试，避免频率限制
         sleep 5
