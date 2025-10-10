@@ -30,7 +30,7 @@ class BaiduStorage:
             try:
                 # 在GitHub Actions环境中添加随机延迟
                 if self.is_github_actions and attempt > 0:
-                    delay = self.retry_delay + random.uniform(0, 5)
+                    delay = self.retry_delay + random.uniform(0, 1)
                     print(f"第{attempt + 1}次重试，等待{delay:.1f}秒...")
                     time.sleep(delay)
                 elif attempt > 0:
