@@ -78,7 +78,7 @@ def main():
     """主函数"""
     print("=" * 60)
     print("百度网盘自动转存任务开始")
-    print(f"执行时间: {datetime.now(ZoneInfo("Asia/Shanghai")).strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"执行时间: {datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
     
     # 检查网络连通性
@@ -183,7 +183,7 @@ def main():
     finally:
         print("=" * 60)
         print("百度网盘自动转存任务结束")
-        print(f"结束时间: {datetime.now(ZoneInfo("Asia/Shanghai")).strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"结束时间: {datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')}")
         print("=" * 60)
 
 if __name__ == "__main__":
