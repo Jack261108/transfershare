@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 from baidupcs_py.baidupcs import BaiduPCSApi
 from baidupcs_py.baidupcs.errors import BaiduPCSError
 
@@ -8,9 +11,14 @@ import re
 import posixpath
 from threading import Lock
 import random
+import traceback
+
+# 添加 WeChatNotifier 和工具方法导入
+from wechat_notifier import WeChatNotifier
+from utils import print_detailed_error, format_error_info, send_wechat_alert
 
 class BaiduStorage:
-    def __init__(self, cookies):
+    def __init__(self, cookies, wechat_webhook=None):
         self._client_lock = Lock()
         self.client = None
         self._init_client(cookies)
@@ -21,6 +29,9 @@ class BaiduStorage:
         # 在GitHub Actions环境中使用更长的重试间隔
         self.retry_delay = 2 if self.is_github_actions else 1
         self.max_retries = 3 if self.is_github_actions else 2
+        
+        # 初始化微信通知器
+        self.wechat_notifier = WeChatNotifier(wechat_webhook) if wechat_webhook else None
         
     def _retry_on_network_error(self, func, *args, **kwargs):
         """网络请求重试装饰器"""
@@ -43,6 +54,10 @@ class BaiduStorage:
                 last_error = e
                 error_str = str(e)
                 
+                # 打印详细的错误信息
+                print(f"网络请求失败（第{attempt + 1}次尝试）:")
+                print(format_error_info(e, "网络请求失败"))
+                
                 # 判断是否为网络相关错误
                 if any(keyword in error_str.lower() for keyword in [
                     'baidupcs._request', 'network', 'timeout', 'connection', 
@@ -53,12 +68,22 @@ class BaiduStorage:
                         continue
                     else:
                         print(f"网络请求最终失败，已重试{self.max_retries}次")
+                        # 发送微信告警
+                        if self.wechat_notifier:
+                            error_msg = f"网络请求最终失败，已重试{self.max_retries}次\n错误类型: {type(e).__name__}\n错误信息: {error_str}"
+                            self.wechat_notifier.send_error_notification(error_msg, None)
                         break
                 else:
                     # 非网络错误，直接抛出
+                    # 发送微信告警
+                    if self.wechat_notifier:
+                        send_wechat_alert(self.wechat_notifier, e, "非网络错误", None)
                     raise e
         
         # 所有重试都失败，抛出最后一个错误
+        # 发送微信告警
+        if self.wechat_notifier:
+            send_wechat_alert(self.wechat_notifier, last_error, "所有重试都失败", None)
         raise last_error
         
     def _init_client(self, cookies):
@@ -67,6 +92,10 @@ class BaiduStorage:
             try:
                 cookies_dict = self._parse_cookies(cookies)
                 if not self._validate_cookies(cookies_dict):
+                    error_msg = "Cookies验证失败"
+                    # 发送微信告警
+                    if self.wechat_notifier:
+                        self.wechat_notifier.send_error_notification(f"百度网盘客户端初始化失败: {error_msg}", None)
                     return False
                     
                 # 使用重试机制初始化客户端
@@ -82,11 +111,17 @@ class BaiduStorage:
                         if retry < 2:
                             time.sleep(3)
                         else:
+                            error_msg = f"客户端初始化最终失败: {str(e)}"
+                            # 发送微信告警
+                            print_detailed_error(e, "百度网盘客户端初始化最终失败", self.wechat_notifier, None)
                             return False
                             
             except Exception as e:
+                error_msg = f"客户端初始化异常: {str(e)}"
+                # 发送微信告警
+                print_detailed_error(e, "百度网盘客户端初始化异常", self.wechat_notifier, None)
                 return False
-            
+
     def _validate_cookies(self, cookies):
         """验证cookies是否有效
         Args:
@@ -143,6 +178,9 @@ class BaiduStorage:
                 
             return quota
         except Exception as e:
+            error_msg = f"获取网盘配额信息时发生异常: {str(e)}"
+            # 打印详细的错误信息
+            print_detailed_error(e, "获取网盘配额信息时发生异常", self.wechat_notifier, None)
             return None
             
     def is_valid(self):
@@ -156,6 +194,9 @@ class BaiduStorage:
             return bool(quota_info)
                 
         except Exception as e:
+            error_msg = f"检查存储可用性时发生异常: {str(e)}"
+            # 打印详细的错误信息
+            print_detailed_error(e, "检查存储可用性时发生异常", self.wechat_notifier, None)
             return False
 
     def _normalize_path(self, path, file_only=False):
@@ -202,6 +243,10 @@ class BaiduStorage:
                         return True
                     except Exception as create_e:
                         if 'error_code: 31062' in str(create_e):  # 文件名非法
+                            error_msg = f"创建目录失败，文件名非法: {path}"
+                            # 发送微信告警
+                            if self.wechat_notifier:
+                                self.wechat_notifier.send_error_notification(f"创建目录失败: {error_msg}", None)
                             return False
                         elif 'file already exists' in str(create_e).lower():
                             # 并发创建时可能发生
@@ -217,11 +262,20 @@ class BaiduStorage:
                                     return False
                             return False
                         else:
+                            error_msg = f"创建目录时发生未知错误: {str(create_e)}"
+                            # 打印详细的错误信息
+                            print_detailed_error(create_e, f"创建目录时发生未知错误\n目录路径: {path}", self.wechat_notifier, None)
                             return False
                 else:
+                    error_msg = f"检查目录是否存在时发生错误: {str(e)}"
+                    # 打印详细的错误信息
+                    print_detailed_error(e, f"检查目录是否存在时发生错误\n目录路径: {path}", self.wechat_notifier, None)
                     return False
                     
         except Exception as e:
+            error_msg = f"确保目录存在时发生异常: {str(e)}"
+            # 打印详细的错误信息
+            print_detailed_error(e, f"确保目录存在时发生异常\n目录路径: {path}", self.wechat_notifier, None)
             return False
 
     def _parse_share_error(self, error_str):
@@ -339,6 +393,9 @@ class BaiduStorage:
                 if "No such file or directory" in str(e) or "-9" in str(e):
                     return []
                 else:
+                    error_msg = f"检查本地目录时发生错误: {str(e)}"
+                    # 打印详细的错误信息
+                    print_detailed_error(e, f"检查本地目录时发生错误\n目录路径: {dir_path}", self.wechat_notifier, None)
                     pass
             
             def _list_dir(path):
@@ -354,6 +411,9 @@ class BaiduStorage:
                             _list_dir(item.path)
                             
                 except Exception as e:
+                    error_msg = f"列出目录内容时发生错误: {str(e)}"
+                    # 打印详细的错误信息
+                    print_detailed_error(e, f"列出目录内容时发生错误\n目录路径: {path}", self.wechat_notifier, None)
                     raise
                     
             _list_dir(dir_path)
@@ -369,8 +429,11 @@ class BaiduStorage:
             return files
             
         except Exception as e:
+            error_msg = f"获取本地文件列表时发生异常: {str(e)}"
+            # 打印详细的错误信息
+            print_detailed_error(e, f"获取本地文件列表时发生异常\n目录路径: {dir_path}", self.wechat_notifier, None)
             return []
-            
+
     def _extract_file_info(self, file_dict):
         """从文件字典中提取文件信息
         Args:
@@ -495,9 +558,13 @@ class BaiduStorage:
         """
         try:
             if not share_configs or not isinstance(share_configs, list):
+                error_msg = '分享配置列表不能为空或格式错误'
+                # 发送微信告警
+                if self.wechat_notifier:
+                    self.wechat_notifier.send_error_notification(f"批量转存配置错误: {error_msg}", None)
                 return {
                     'success': False,
-                    'error': '分享配置列表不能为空或格式错误',
+                    'error': error_msg,
                     'total_count': 0,
                     'success_count': 0,
                     'failed_count': 0,
@@ -523,6 +590,9 @@ class BaiduStorage:
                             'error': error_msg
                         })
                         failed_count += 1
+                        # 发送微信告警
+                        if self.wechat_notifier:
+                            self.wechat_notifier.send_error_notification(f"批量转存配置错误: {error_msg}", None)
                         continue
                     
                     share_url = config['share_url']
@@ -573,6 +643,11 @@ class BaiduStorage:
                         result_record['error'] = result.get('error', '未知错误')
                         if progress_callback:
                             progress_callback('error', f'【{index}/{total_count}】失败: {result.get("error")}')
+                        # 发送微信告警
+                        if self.wechat_notifier:
+                            error_msg = result.get('error', '未知错误')
+                            detailed_error = f"批量转存中单个链接失败\n分享链接: {share_url}\n保存目录: {save_dir}\n错误信息: {error_msg}"
+                            self.wechat_notifier.send_error_notification(detailed_error, None)
                     
                     results.append(result_record)
                     
@@ -591,6 +666,8 @@ class BaiduStorage:
                     failed_count += 1
                     if progress_callback:
                         progress_callback('error', f'【{index}/{total_count}】异常: {str(e)}')
+                    # 打印详细的错误信息
+                    print_detailed_error(e, f"处理第 {index} 个分享链接时发生异常\n分享链接: {config.get('share_url', '未知')}", self.wechat_notifier, None)
             
             # 生成总结信息
             summary_parts = []
@@ -625,6 +702,8 @@ class BaiduStorage:
             error_msg = f'批量转存操作失败: {str(e)}'
             if progress_callback:
                 progress_callback('error', error_msg)
+            # 打印详细的错误信息
+            print_detailed_error(e, "批量转存操作失败", self.wechat_notifier, None)
             return {
                 'success': False,
                 'error': error_msg,
@@ -1026,6 +1105,9 @@ class BaiduStorage:
                 error_msg = '文本中未找到有效的分享链接，请确保使用 https://pan.baidu.com/s/xxxxx?pwd=xxxx 格式'
                 if progress_callback:
                     progress_callback('warning', error_msg)
+                # 发送微信告警
+                if self.wechat_notifier:
+                    self.wechat_notifier.send_error_notification(f"解析分享链接失败: {error_msg}", None)
                 return {
                     'success': False,
                     'error': error_msg,
@@ -1046,6 +1128,8 @@ class BaiduStorage:
             error_msg = f'从文本转存失败: {str(e)}'
             if progress_callback:
                 progress_callback('error', error_msg)
+            # 打印详细的错误信息
+            print_detailed_error(e, "从文本转存失败", self.wechat_notifier, None)
             return {
                 'success': False,
                 'error': error_msg,
@@ -1097,9 +1181,13 @@ class BaiduStorage:
                 # 步骤1.1：获取分享文件列表并记录
                 shared_paths = self._retry_on_network_error(self.client.shared_paths, shared_url=share_url)
                 if not shared_paths:
+                    error_msg = '获取分享文件列表失败'
                     if progress_callback:
-                        progress_callback('error', '获取分享文件列表失败')
-                    return {'success': False, 'error': '获取分享文件列表失败'}
+                        progress_callback('error', error_msg)
+                    # 发送微信告警
+                    if self.wechat_notifier:
+                        self.wechat_notifier.send_error_notification(f"转存失败: {error_msg}\n分享链接: {share_url}", None)
+                    return {'success': False, 'error': error_msg}
                 
                 # 记录分享文件信息
                 
@@ -1209,9 +1297,13 @@ class BaiduStorage:
                 for _, dir_path, _, _, _ in transfer_list:
                     if dir_path not in created_dirs:
                         if not self._ensure_dir_exists(dir_path):
+                            error_msg = f'创建目录失败: {dir_path}'
                             if progress_callback:
-                                progress_callback('error', f'创建目录失败: {dir_path}')
-                            return {'success': False, 'error': f'创建目录失败: {dir_path}'}
+                                progress_callback('error', error_msg)
+                            # 发送微信告警
+                            if self.wechat_notifier:
+                                self.wechat_notifier.send_error_notification(f"转存失败: {error_msg}\n分享链接: {share_url}\n保存目录: {save_dir}", None)
+                            return {'success': False, 'error': error_msg}
                         created_dirs.add(dir_path)
                 
                 # 步骤4：执行文件转存
@@ -1276,13 +1368,21 @@ class BaiduStorage:
                                 if progress_callback:
                                     progress_callback('success', f'重试成功: {dir_path}')
                             except Exception as retry_e:
+                                error_msg = f'转存失败: {dir_path} - {str(retry_e)}'
                                 if progress_callback:
-                                    progress_callback('error', f'转存失败: {dir_path} - {str(retry_e)}')
-                                return {'success': False, 'error': f'转存失败: {dir_path} - {str(retry_e)}'}
+                                    progress_callback('error', error_msg)
+                                # 发送微信告警
+                                if self.wechat_notifier:
+                                    print_detailed_error(retry_e, f"转存失败: {dir_path}", self.wechat_notifier, None)
+                                return {'success': False, 'error': error_msg}
                         else:
+                            error_msg = f'转存失败: {dir_path} - {str(e)}'
                             if progress_callback:
-                                progress_callback('error', f'转存失败: {dir_path} - {str(e)}')
-                            return {'success': False, 'error': f'转存失败: {dir_path} - {str(e)}'}
+                                progress_callback('error', error_msg)
+                            # 发送微信告警
+                            if self.wechat_notifier:
+                                print_detailed_error(e, f"转存失败: {dir_path}", self.wechat_notifier, None)
+                            return {'success': False, 'error': error_msg}
                     
                     time.sleep(1)  # 避免频率限制
                 
@@ -1310,6 +1410,12 @@ class BaiduStorage:
                                 
                         except Exception as e:
                             # 重命名失败时使用原文件名
+                            error_msg = f'重命名文件失败: {os.path.basename(clean_path)} -> {os.path.basename(final_path)}'
+                            if progress_callback:
+                                progress_callback('error', f'{error_msg}: {str(e)}')
+                            # 发送微信告警
+                            if self.wechat_notifier:
+                                print_detailed_error(e, f"重命名文件失败\n原始文件: {os.path.basename(clean_path)}\n目标文件: {os.path.basename(final_path)}", self.wechat_notifier, None)
                             renamed_files.append(clean_path)
                     else:
                         renamed_files.append(final_path)
@@ -1334,21 +1440,29 @@ class BaiduStorage:
                         'transferred_files': renamed_files[:success_count]
                     }
                 else:  # 全部失败
+                    error_msg = '转存失败，没有文件成功转存'
                     if progress_callback:
-                        progress_callback('error', '转存失败，没有文件成功转存')
+                        progress_callback('error', error_msg)
+                    # 发送微信告警
+                    if self.wechat_notifier:
+                        self.wechat_notifier.send_error_notification(f"转存失败: {error_msg}\n分享链接: {share_url}\n保存目录: {save_dir}", None)
                     return {
                         'success': False,
-                        'error': '转存失败，没有文件成功转存'
+                        'error': error_msg
                     }
                 
             except Exception as e:
                 error_msg = str(e)
                 # 使用新的错误解析函数
                 parsed_error = self._parse_share_error(error_msg)
+                # 打印详细的错误信息
+                print_detailed_error(e, f"转存分享链接时发生异常\n分享链接: {share_url}", self.wechat_notifier, None)
                 return {'success': False, 'error': parsed_error}
             
         except Exception as e:
             parsed_error = self._parse_share_error(str(e))
+            # 打印详细的错误信息
+            print_detailed_error(e, f"转存分享链接时发生未捕获异常\n分享链接: {share_url}", self.wechat_notifier, None)
             return {'success': False, 'error': parsed_error}
 
     def get_share_folder_name(self, share_url, pwd=None):
@@ -1363,7 +1477,11 @@ class BaiduStorage:
             # 获取分享文件列表
             shared_paths = self.client.shared_paths(shared_url=share_url)
             if not shared_paths:
-                return {'success': False, 'error': '获取分享文件列表失败'}
+                error_msg = '获取分享文件列表失败'
+                # 发送微信告警
+                if self.wechat_notifier:
+                    self.wechat_notifier.send_error_notification(f"获取分享文件列表失败: {error_msg}\n分享链接: {share_url}", None)
+                return {'success': False, 'error': error_msg}
             
             # 获取主文件夹名称
             if len(shared_paths) == 1 and shared_paths[0].is_dir:
@@ -1381,9 +1499,16 @@ class BaiduStorage:
                         folder_name = os.path.splitext(os.path.basename(first_item.path))[0]
                     return {'success': True, 'folder_name': folder_name}
                 else:
-                    return {'success': False, 'error': '分享内容为空'}
+                    error_msg = '分享内容为空'
+                    # 发送微信告警
+                    if self.wechat_notifier:
+                        self.wechat_notifier.send_error_notification(f"分享内容为空: {error_msg}\n分享链接: {share_url}", None)
+                    return {'success': False, 'error': error_msg}
                     
         except Exception as e:
+            error_msg = f"获取分享文件夹名称时发生异常: {str(e)}"
+            # 打印详细的错误信息
+            print_detailed_error(e, f"获取分享文件夹名称时发生异常\n分享链接: {share_url}", self.wechat_notifier, None)
             return {'success': False, 'error': str(e)}
 
     def list_shared_files(self, share_url, pwd=None):
@@ -1416,6 +1541,9 @@ class BaiduStorage:
                             )
                             all_files.extend(sub_files)
                         except Exception as e:
+                            error_msg = f"获取子目录内容时发生错误: {str(e)}"
+                            # 打印详细的错误信息
+                            print_detailed_error(e, f"获取子目录内容时发生错误\n目录路径: {file.path}\n分享链接: {share_url}", self.wechat_notifier, None)
                             pass
                     else:
                         all_files.append(file)
@@ -1425,4 +1553,7 @@ class BaiduStorage:
             return all_files
 
         except Exception as e:
+            error_msg = f"获取分享文件列表时发生异常: {str(e)}"
+            # 打印详细的错误信息
+            print_detailed_error(e, f"获取分享文件列表时发生异常\n分享链接: {share_url}", self.wechat_notifier, None)
             raise

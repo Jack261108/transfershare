@@ -105,7 +105,7 @@ def main():
         
         # 初始化存储客户端
         print("初始化百度网盘客户端...")
-        storage = BaiduStorage(config['cookies'])
+        storage = BaiduStorage(config['cookies'], config['wechat_webhook'])
         
         if not storage.is_valid():
             raise Exception("百度网盘客户端初始化失败，请检查cookies是否有效")
