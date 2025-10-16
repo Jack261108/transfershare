@@ -7,7 +7,6 @@ import requests
 from datetime import datetime
 import time
 import traceback
-from utils import handle_error_and_notify
 
 
 class WeChatNotifier:
@@ -79,8 +78,18 @@ class WeChatNotifier:
                         return False
                     
             except Exception as e:
-                # 使用现有的错误处理工具
-                handle_error_and_notify(e, f"发送企业微信通知时出错 (尝试 {attempt + 1}/{max_retries + 1})", None)
+                # 打印完整的错误堆栈信息
+                print(f"发送企业微信通知时出错: {str(e)}")
+                print("错误堆栈信息:")
+                traceback.print_exc()
+                
+                # 使用现有的错误处理工具（在函数内部导入以避免循环导入）
+                try:
+                    from utils import handle_error_and_notify
+                    handle_error_and_notify(e, f"发送企业微信通知时出错 (尝试 {attempt + 1}/{max_retries + 1})", None)
+                except ImportError:
+                    # 如果无法导入工具函数，至少打印错误信息
+                    print(f"无法导入错误处理工具: {str(e)}")
                 
                 if attempt < max_retries:
                     print(f"第 {attempt + 1} 次重试...")
