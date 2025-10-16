@@ -5,6 +5,9 @@ import json
 from zoneinfo import ZoneInfo
 import requests
 from datetime import datetime
+import time
+import traceback
+from utils import handle_error_and_notify
 
 
 class WeChatNotifier:
@@ -18,51 +21,75 @@ class WeChatNotifier:
         
     def send_message(self, message, msg_type="text"):
         """
-        发送消息到企业微信
+        发送消息到企业微信，失败时重试两次
         Args:
             message: 消息内容
             msg_type: 消息类型，支持 "text", "markdown"
         """
-        try:
-            if msg_type == "text":
-                data = {
-                    "msgtype": "text",
-                    "text": {
-                        "content": message
+        max_retries = 2
+        retry_delay = 5  # 重试间隔秒数
+        
+        for attempt in range(max_retries + 1):
+            try:
+                if msg_type == "text":
+                    data = {
+                        "msgtype": "text",
+                        "text": {
+                            "content": message
+                        }
                     }
-                }
-            elif msg_type == "markdown":
-                data = {
-                    "msgtype": "markdown",
-                    "markdown": {
-                        "content": message
+                elif msg_type == "markdown":
+                    data = {
+                        "msgtype": "markdown",
+                        "markdown": {
+                            "content": message
+                        }
                     }
-                }
-            else:
-                raise ValueError(f"不支持的消息类型: {msg_type}")
-            
-            response = requests.post(
-                self.webhook_url,
-                json=data,
-                headers={'Content-Type': 'application/json'},
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                if result.get('errcode') == 0:
-                    print("企业微信通知发送成功")
-                    return True
                 else:
-                    print(f"企业微信通知发送失败: {result.get('errmsg', '未知错误')}")
-                    return False
-            else:
-                print(f"企业微信通知发送失败: HTTP {response.status_code}")
-                return False
+                    raise ValueError(f"不支持的消息类型: {msg_type}")
                 
-        except Exception as e:
-            print(f"发送企业微信通知时出错: {str(e)}")
-            return False
+                response = requests.post(
+                    self.webhook_url,
+                    json=data,
+                    headers={'Content-Type': 'application/json'},
+                    timeout=60
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    if result.get('errcode') == 0:
+                        print("企业微信通知发送成功")
+                        return True
+                    else:
+                        error_msg = result.get('errmsg', '未知错误')
+                        print(f"企业微信通知发送失败: {error_msg}")
+                        if attempt < max_retries:
+                            print(f"第 {attempt + 1} 次重试...")
+                            time.sleep(retry_delay)
+                            continue
+                        else:
+                            return False
+                else:
+                    print(f"企业微信通知发送失败: HTTP {response.status_code}")
+                    if attempt < max_retries:
+                        print(f"第 {attempt + 1} 次重试...")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        return False
+                    
+            except Exception as e:
+                # 使用现有的错误处理工具
+                handle_error_and_notify(e, f"发送企业微信通知时出错 (尝试 {attempt + 1}/{max_retries + 1})", None)
+                
+                if attempt < max_retries:
+                    print(f"第 {attempt + 1} 次重试...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    return False
+        
+        return False
     
     def send_transfer_result(self, result, config):
         """
