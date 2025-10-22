@@ -125,7 +125,7 @@ export BAIDU_COOKIES="BDUSS=xxx; STOKEN=xxx"
 export WECHAT_WEBHOOK="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxxx"
 
 # 运行测试
-python test_wechat.py
+python test_transfer.py
 ```
 
 ## 🔗 分享链接格式说明
@@ -149,6 +149,38 @@ https://pan.baidu.com/s/1example3?pwd=abcd /我的文件/资料
 - 不指定目录：使用 `SAVE_DIR` 默认值
 - 指定目录：必须以 `/` 开头
 - 自动创建：目录不存在时会自动创建
+
+## 🧩 错误收集与上报
+
+项目已统一采用 `utils.handle_error_and_notify` 进行错误处理与上报：
+
+- 统一打印详细上下文与堆栈（含错误类型、信息与 traceback）
+- 可选发送企业微信通知（需配置 `WECHAT_WEBHOOK`）
+- 支持按步骤收集错误并聚合上报：使用 `ErrorCollector` 上下文管理器
+
+示例：
+
+```python
+from utils import ErrorCollector, handle_error_and_notify
+
+notifier = WeChatNotifier(webhook_url)
+
+with ErrorCollector("批量转存", notifier, config) as ec:
+    try:
+        ...  # 业务逻辑
+    except Exception as e:
+        ec.capture(e, "子步骤说明")
+
+# 非聚合场景的统一处理（直接上报并打印）
+try:
+    ...
+except Exception as e:
+    handle_error_and_notify(e, "主任务执行失败", notifier, config, collect=False)
+```
+
+注意：
+- 设置 `collect=False` 时，将直接上报并打印详细错误
+- 在 `with ErrorCollector(...)` 作用域内捕获的错误会被收集，退出时自动聚合发送
 
 ## 🛠 故障排除
 
