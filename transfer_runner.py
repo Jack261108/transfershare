@@ -7,6 +7,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from storage import BaiduStorage
 from wechat_notifier import WeChatNotifier
+from utils import handle_error_and_notify
 
 
 
@@ -170,14 +171,7 @@ def main():
             sys.exit(1)
             
     except Exception as e:
-        error_msg = str(e)
-        print(f"❌ 任务执行失败: {error_msg}")
-        
-        # 发送错误通知
-        if notifier and config:
-            print("发送错误通知到企业微信...")
-            notifier.send_error_notification(error_msg, config)
-        
+        handle_error_and_notify(e, "主任务执行失败", notifier, config, collect=False)
         sys.exit(1)
     
     finally:
