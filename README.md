@@ -59,6 +59,44 @@ graph LR
 
 ## 🔧 环境准备
 
+### 使用脚本一键获取 Cookies 并可选写入 Secrets（推荐）
+
+脚本：`save_baidu_cookies.py` — 通过真实浏览器登录百度网盘，自动提取 Cookie，并可写入本地 env 文件或 GitHub Secrets。
+
+先决条件：
+- pip install playwright
+- python -m playwright install
+- 写入 Secrets 需要 GitHub CLI：brew install gh && gh auth login
+
+常用用法：
+
+```bash
+# 1) 获取并写入 GitHub Secrets（会弹出浏览器扫码/登录）
+python save_baidu_cookies.py --repo owner/repo
+
+# 2) 仅获取并写入本地 env（默认 baidu_cookies.env）
+python save_baidu_cookies.py
+
+# 3) 从已有 env 写入 Secrets（不启浏览器）
+python save_baidu_cookies.py --repo owner/repo --from-env --env baidu_cookies.env
+
+# 4) 只写最小或全量 Secrets（与 --repo 搭配使用）
+python save_baidu_cookies.py --repo owner/repo --min-only
+python save_baidu_cookies.py --repo owner/repo --full-only
+
+# 5) 无头模式（不推荐，扫码不便）
+python save_baidu_cookies.py --headless
+```
+
+脚本行为说明：
+- 最小必需变量 BAIDU_COOKIES：仅包含 BDUSS 与 STOKEN，格式 `BDUSS=...; STOKEN=...`
+- 全量变量 BAIDU_COOKIES_FULL：将全部 Cookie 合并（优先 pan.baidu.com 域），格式 `name=value; name2=value2`
+- 默认会将抓取结果写入本地 `baidu_cookies.env`，可配合 `--from-env` 再写入 Secrets
+
+安全提示：
+- Cookie 含敏感信息，请妥善保管，不要提交到仓库
+- 建议优先使用扫码登录并在完成后尽快关闭浏览器
+
 ### 1. Fork 仓库
 
 点击右上角的 **"Fork"** 按钮，将此仓库复制到您的 GitHub 账户。
