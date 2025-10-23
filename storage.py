@@ -26,9 +26,9 @@ class BaiduStorage:
         self.min_request_interval = 2
         # GitHub Actions环境检测
         self.is_github_actions = os.getenv('GITHUB_ACTIONS') == 'true'
-        # 在GitHub Actions环境中使用更长的重试间隔
-        self.retry_delay = 2 if self.is_github_actions else 1
-        self.max_retries = 3 if self.is_github_actions else 2
+        # 在GitHub Actions环境中使用更激进的重试策略（指数退避+抖动）
+        self.base_retry_delay = 2 if self.is_github_actions else 1
+        self.max_retries = 5 if self.is_github_actions else 3
         
         # 初始化微信通知器
         self.wechat_notifier = WeChatNotifier(wechat_webhook) if wechat_webhook else None
@@ -40,13 +40,16 @@ class BaiduStorage:
         with ErrorCollector("网络请求重试装饰器", self.wechat_notifier, None) as ec:
             for attempt in range(self.max_retries):
                 try:
-                    # 在GitHub Actions环境中添加随机延迟
-                    if self.is_github_actions and attempt > 0:
-                        delay = self.retry_delay + random.uniform(0, 1)
+                    # 在 GitHub Actions 环境采用指数退避+抖动；本地使用线性退避
+                    if attempt > 0:
+                        if self.is_github_actions:
+                            delay = self.base_retry_delay * (2 ** (attempt - 1)) + random.uniform(0, 1.5)
+                        else:
+                            delay = self.base_retry_delay * attempt
+                        # 最大等待 30 秒以避免过长阻塞
+                        delay = min(delay, 30)
                         print(f"第{attempt + 1}次重试，等待{delay:.1f}秒...")
                         time.sleep(delay)
-                    elif attempt > 0:
-                        time.sleep(self.retry_delay)
                     
                     # 执行请求
                     return func(*args, **kwargs)

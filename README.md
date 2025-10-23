@@ -240,6 +240,16 @@ except Exception as e:
 解决方法: 检查分享链接是否还有效，更新 SHARE_URLS
 ```
 
+### 🔴 网络超时/连接失败（GitHub Actions 环境）
+```
+错误信息: TimeoutError / NewConnectionError / MaxRetryError / ConnectionError 等
+表现: HTTPSConnectionPool(host='pan.baidu.com', ...): Max retries exceeded ... Failed to establish a new connection: [Errno 110] Connection timed out
+解决方法:
+  1) 已内置指数退避重试（Actions 环境最多 5 次，延时上限 30s），可多重试几次
+  2) 若频繁出现，可改为本地执行或设法使用可访问外网的 Runner
+  3) 检查目标网络可达性（企业网络策略、地域限制等）
+```
+
 ### 🔴 频率限制
 ```
 错误信息: "error_code: -65" 或 "触发频率限制"
