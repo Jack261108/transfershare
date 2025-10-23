@@ -77,7 +77,7 @@ class BaiduStorage:
                         break
                 else:
                     # 非网络错误，直接抛出（由 ErrorCollector 统一处理聚合）
-                    raise e
+                    raise last_error
         
         # 所有重试都失败，抛出最后一个错误（由 ErrorCollector 统一处理聚合）
         raise last_error
