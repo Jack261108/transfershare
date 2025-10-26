@@ -219,6 +219,7 @@ except Exception as e:
 注意：
 - 设置 `collect=False` 时，将直接上报并打印详细错误
 - 在 `with ErrorCollector(...)` 作用域内捕获的错误会被收集，退出时自动聚合发送
+- 为避免重复告警：在 ErrorCollector 作用域内调用 `handle_error_and_notify(..., collect=False)` 仅打印不立即发送，最终以聚合结果发送一次
 
 ## 🛠 故障排除
 
