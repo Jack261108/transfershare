@@ -14,13 +14,13 @@ _collection_lock = threading.Lock()
 
 def print_detailed_error(error, context="", wechat_notifier=None, config=None):
     """
-    打印详细的错误信息并可选择发送微信告警
+    仅打印详细的错误信息（不直接发送通知）
     
     Args:
         error: 异常对象
         context: 错误上下文信息
-        wechat_notifier: 微信通知器实例
-        config: 配置信息
+        wechat_notifier: 微信通知器实例（保留参数以兼容旧签名）
+        config: 配置信息（保留参数以兼容旧签名）
     """
     error_msg = f"发生异常: {context}\n"
     error_msg += f"  错误类型: {type(error).__name__}\n"
@@ -28,11 +28,7 @@ def print_detailed_error(error, context="", wechat_notifier=None, config=None):
     error_msg += f"  详细堆栈: {traceback.format_exc()}"
     
     print(error_msg)
-    
-    # 发送微信告警
-    if wechat_notifier:
-        detailed_error = f"{context}\n错误类型: {type(error).__name__}\n错误信息: {str(error)}\n详细堆栈: {traceback.format_exc()}"
-        wechat_notifier.send_error_notification(detailed_error, config)
+    # 注意：不在此处发送企业微信通知，避免与上层统一处理重复发送
 
 
 def format_error_info(error, context=""):
@@ -147,24 +143,33 @@ def end_error_collection():
 
 def handle_error_and_notify(error, context, wechat_notifier, config=None, collect=True):
     """
-    统一处理错误：收集错误、打印详细信息并发送微信告警
+    统一处理错误：收集错误、打印详细信息，并在需要时发送微信告警
     
     Args:
         error: 异常对象
         context: 错误上下文信息
         wechat_notifier: 微信通知器实例
         config: 配置信息
-        collect: 是否收集错误
+        collect: 是否收集错误（True 表示纳入聚合，由 ErrorCollector 统一发送；False 表示立即发送一次）
     """
     # 收集错误
     if collect:
         collect_error(error, context)
     
-    # 打印详细的错误信息
-    print_detailed_error(error, context, wechat_notifier, config)
+    # 仅打印详细的错误信息（不直接发送），避免重复
+    print_detailed_error(error, context)
     
-    # 发送微信告警（如果未使用错误收集机制）
-    if not collect and wechat_notifier:
+    # 在存在收集上下文时，避免即时发送造成重复
+    thread_id = threading.get_ident()
+    has_collection = False
+    try:
+        with _collection_lock:
+            has_collection = bool(_error_collections.get(thread_id))
+    except Exception:
+        has_collection = False
+    
+    # 立即发送一次（仅当未聚合且当前没有收集上下文时）
+    if not collect and not has_collection and wechat_notifier:
         send_wechat_alert(wechat_notifier, error, context, config)
 
 
