@@ -72,7 +72,7 @@ def start_error_collection(context=""):
     """
     thread_id = threading.get_ident()
     with _collection_lock:
-        _error_collections[thread_id] = [{"context": context, "errors": []}]
+        _error_collections[thread_id] = [{"context": context, "errors": [], "seen": set()}]
 
 
 def collect_error(error, context=""):
@@ -86,13 +86,24 @@ def collect_error(error, context=""):
     thread_id = threading.get_ident()
     with _collection_lock:
         if thread_id in _error_collections and _error_collections[thread_id]:
+            # 构造去重键：类型 + 消息 + 归一化上下文
+            etype = type(error).__name__
+            emsg = str(error)
+            ectx = str(context)
+            key = f"{etype}|{emsg}|{ectx}"
+            stack = _error_collections[thread_id][-1]
+            seen = stack.get("seen")
+            if isinstance(seen, set):
+                if key in seen:
+                    return  # 已收集，跳过
+                seen.add(key)
             error_info = {
-                "type": type(error).__name__,
-                "message": str(error),
-                "context": context,
+                "type": etype,
+                "message": emsg,
+                "context": ectx,
                 "traceback": traceback.format_exc()
             }
-            _error_collections[thread_id][-1]["errors"].append(error_info)
+            stack["errors"].append(error_info)
 
 
 def send_collected_errors(wechat_notifier, config=None):

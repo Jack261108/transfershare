@@ -568,7 +568,7 @@ class BaiduStorage:
                 # 收集错误
                 collect_error(ValueError(error_msg), "分享配置列表验证失败")
                 # 统一错误处理
-                handle_error_and_notify(ValueError(error_msg), "批量转存配置错误", self.wechat_notifier, None, collect=False)
+                handle_error_and_notify(ValueError(error_msg), "批量转存配置错误", self.wechat_notifier, None, collect=True)
                 return {
                     'success': False,
                     'error': error_msg,
@@ -600,7 +600,7 @@ class BaiduStorage:
                         # 收集错误
                         collect_error(ValueError(error_msg), f"第 {index} 个配置格式错误")
                         # 统一错误处理
-                        handle_error_and_notify(ValueError(error_msg), "批量转存配置错误", self.wechat_notifier, None, collect=False)
+                        handle_error_and_notify(ValueError(error_msg), "批量转存配置错误", self.wechat_notifier, None, collect=True)
                         continue
                     
                     share_url = config['share_url']
@@ -1239,7 +1239,7 @@ class BaiduStorage:
             if not shared_paths:
                 error_msg = '获取分享文件列表失败'
                 # 统一错误处理
-                handle_error_and_notify(ValueError(error_msg), f"获取分享文件列表失败\n分享链接: {share_url}", self.wechat_notifier, None, collect=False)
+                handle_error_and_notify(ValueError(error_msg), f"获取分享文件列表失败\n分享链接: {share_url}", self.wechat_notifier, None, collect=True)
                 return {'success': False, 'error': error_msg}
             
             # 获取主文件夹名称
@@ -1260,10 +1260,10 @@ class BaiduStorage:
                 else:
                     error_msg = '分享内容为空'
                     # 统一错误处理
-                    handle_error_and_notify(ValueError(error_msg), f"分享内容为空\n分享链接: {share_url}", self.wechat_notifier, None, collect=False)
+                    handle_error_and_notify(ValueError(error_msg), f"分享内容为空\n分享链接: {share_url}", self.wechat_notifier, None, collect=True)
                     return {'success': False, 'error': error_msg}
                     
         except Exception as e:
             # 使用统一的错误处理函数
-            handle_error_and_notify(e, f"获取分享文件夹名称时发生异常\n分享链接: {share_url}", self.wechat_notifier, None, collect=False)
+            handle_error_and_notify(e, f"获取分享文件夹名称时发生异常\n分享链接: {share_url}", self.wechat_notifier, None, collect=True)
             return {'success': False, 'error': str(e)}
