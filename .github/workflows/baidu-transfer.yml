@@ -29,7 +29,7 @@ jobs:
         
     - name: Run transfer task (First attempt)
       id: first_attempt
-      timeout-minutes: 4
+      timeout-minutes: 7
       continue-on-error: true
       env:
         BAIDU_COOKIES: ${{ secrets.BAIDU_COOKIES }}
@@ -53,7 +53,7 @@ jobs:
         
     - name: Run transfer task (Second attempt)
       if: steps.first_attempt.outcome == 'failure'
-      timeout-minutes: 5
+      timeout-minutes: 10
       env:
         BAIDU_COOKIES: ${{ secrets.BAIDU_COOKIES }}
         SHARE_URLS: ${{ secrets.SHARE_URLS }}
