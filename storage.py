@@ -371,7 +371,7 @@ class BaiduStorage:
         返回相对于 dir_path 的规范化相对路径（使用正斜杠），用于去重对比
         """
         try:
-            files: set[str] = set()
+            files = set()
             
             # 检查目录是否存在
             try:
@@ -412,7 +412,7 @@ class BaiduStorage:
             handle_error_and_notify(e, f"获取本地文件列表时发生异常\n目录路径: {dir_path}", self.wechat_notifier, None, collect=False)
             return set()
 
-    def _get_remote_file_md5(self, full_path: str) -> str | None:
+    def _get_remote_file_md5(self, full_path: str):
         """查询目标网盘上指定文件的 md5（若 API 返回）
         full_path: 形如 '/apps/xxx/dir/file.ext'
         返回 md5 字符串或 None
@@ -972,7 +972,7 @@ class BaiduStorage:
                     progress_callback('info', f'【步骤2/4】扫描本地目录: {save_dir}')
                 
                 # 获取本地文件列表
-                local_files: set[str] = set()
+                local_files = set()
                 if save_dir:
                     local_files = self.list_local_files(save_dir)
                     if progress_callback:
