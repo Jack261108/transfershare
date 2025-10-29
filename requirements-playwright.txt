@@ -1,0 +1,3 @@
+# Optional/dev requirement for cookie capture helper script
+playwright==1.55.0
+# Remember to install browsers once:  python -m playwright install

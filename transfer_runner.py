@@ -159,7 +159,7 @@ def main():
             error_msg = result.get('error', result.get('summary', '未知错误'))
             print(f"❌ 转存失败: {error_msg}")
         
-        # 发送企业微信通知
+        # 发送企业微信通知（聚合发送策略：仅在任务结束发送一次总结）
         if notifier:
             print("发送企业微信通知...")
             notification_sent = notifier.send_transfer_result(result, config)
@@ -168,10 +168,11 @@ def main():
         
         # 如果转存失败，退出程序
         if not result['success']:
+            # 非成功结果也统一走 finally，通知在结尾统一发送
             sys.exit(1)
             
     except Exception as e:
-        handle_error_and_notify(e, "主任务执行失败", notifier, config, collect=False)
+        handle_error_and_notify(e, "主任务执行失败", notifier, config, collect=True)
         sys.exit(1)
     
     finally:

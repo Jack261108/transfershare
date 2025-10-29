@@ -217,55 +217,51 @@ class BaiduStorage:
             return path
 
     def _ensure_dir_exists(self, path):
-        """确保目录存在，如果不存在则创建
+        """确保目录存在：自顶向下构建路径树，已存在则跳过，减少递归与日志噪音
         Args:
-            path: 目录路径
+            path: 目录路径，如 '/a/b/c'
         Returns:
             bool: 是否成功
         """
         try:
             path = self._normalize_path(path)
-            
-            # 检查目录是否存在
-            try:
-                self.client.list(path)
+            if path in ('', '/'):  # 根目录视为已存在
                 return True
-            except Exception as e:
-                if 'error_code: 31066' in str(e):  # 目录不存在
+
+            # 自顶向下逐级创建，避免“父目录不存在”的重复错误
+            # 例：/a/b/c -> ['/a', '/a/b', '/a/b/c']
+            parts = [p for p in path.strip('/').split('/') if p]
+            prefixes = []
+            curr = ''
+            for p in parts:
+                curr = f"{curr}/{p}" if curr else f"/{p}"
+                prefixes.append(curr)
+
+            for seg in prefixes:
+                try:
+                    self.client.makedir(seg)
+                except Exception as ce:
+                    msg = str(ce)
+                    # 已存在则跳过下一层
+                    if 'file already exists' in msg.lower():
+                        continue
+                    # 文件名非法（立即失败）
+                    if 'error_code: 31062' in msg:
+                        err = ValueError(f"创建目录失败，文件名非法: {seg}")
+                        handle_error_and_notify(err, "创建目录失败: 文件名非法", self.wechat_notifier, None, collect=True)
+                        return False
+                    # 某些实现可能在已存在时抛其他错误，做一次存在性校验
                     try:
-                        self.client.makedir(path)
-                        return True
-                    except Exception as create_e:
-                        if 'error_code: 31062' in str(create_e):  # 文件名非法
-                            error_msg = f"创建目录失败，文件名非法: {path}"
-                            # 统一错误处理
-                            handle_error_and_notify(ValueError(error_msg), "创建目录失败: 文件名非法", self.wechat_notifier, None, collect=False)
-                            return False
-                        elif 'file already exists' in str(create_e).lower():
-                            # 并发创建时可能发生
-                            return True
-                        elif 'no such file or directory' in str(create_e).lower():
-                            # 需要创建父目录
-                            parent_dir = os.path.dirname(path)
-                            if parent_dir and parent_dir != '/':
-                                if self._ensure_dir_exists(parent_dir):
-                                    # 父目录创建成功，重试创建当前目录
-                                    return self._ensure_dir_exists(path)
-                                else:
-                                    return False
-                            return False
-                        else:
-                            # 使用统一的错误处理函数
-                            handle_error_and_notify(create_e, f"创建目录时发生未知错误\n目录路径: {path}", self.wechat_notifier, None, collect=False)
-                            return False
-                else:
-                    # 使用统一的错误处理函数
-                    handle_error_and_notify(e, f"检查目录是否存在时发生错误\n目录路径: {path}", self.wechat_notifier, None, collect=False)
-                    return False
-                    
+                        self.client.list(seg)
+                        continue
+                    except Exception as le:
+                        # 确认真的不可用再报错
+                        handle_error_and_notify(ce, f"创建目录出错\n目录路径: {seg}", self.wechat_notifier, None, collect=True)
+                        return False
+
+            return True
         except Exception as e:
-            # 使用统一的错误处理函数
-            handle_error_and_notify(e, f"确保目录存在时发生异常\n目录路径: {path}", self.wechat_notifier, None, collect=False)
+            handle_error_and_notify(e, f"确保目录存在时发生异常\n目录路径: {path}", self.wechat_notifier, None, collect=True)
             return False
 
     def _parse_share_error(self, error_str):
@@ -371,55 +367,77 @@ class BaiduStorage:
             return True, file_path
 
     def list_local_files(self, dir_path):
-        """获取本地目录中的所有文件列表"""
+        """获取指定目录下已存在文件的相对路径集合
+        返回相对于 dir_path 的规范化相对路径（使用正斜杠），用于去重对比
+        """
         try:
-            files = []
+            files: set[str] = set()
             
             # 检查目录是否存在
             try:
-                # 尝试列出目录内容来检查是否存在
                 self.client.list(dir_path)
             except Exception as e:
                 if "No such file or directory" in str(e) or "-9" in str(e):
-                    return []
+                    return set()
                 else:
-                    # 使用统一的错误处理函数
                     handle_error_and_notify(e, f"检查本地目录时发生错误\n目录路径: {dir_path}", self.wechat_notifier, None, collect=False)
-                    pass
+                    return set()
+            
+            base = dir_path.replace('\\', '/')
+            if not base.endswith('/'):
+                base += '/'
             
             def _list_dir(path):
                 try:
                     content = self.client.list(path)
-                    
                     for item in content:
                         if item.is_file:
-                            # 只保留文件名进行对比
-                            file_name = os.path.basename(item.path)
-                            files.append(file_name)
+                            p = item.path.replace('\\', '/')
+                            if p.startswith(base):
+                                rel = p[len(base):]
+                            else:
+                                # 退化处理：去掉前导斜杠
+                                rel = p.lstrip('/')
+                            rel = posixpath.normpath(rel)
+                            files.add(rel)
                         elif item.is_dir:
                             _list_dir(item.path)
-                            
                 except Exception as e:
-                    # 使用统一的错误处理函数
                     handle_error_and_notify(e, f"列出目录内容时发生错误\n目录路径: {path}", self.wechat_notifier, None, collect=False)
                     raise
-                    
+            
             _list_dir(dir_path)
-            
-            # 有序展示文件列表
-            if files:
-                display_files = files[:20] if len(files) > 20 else files
-                if len(files) > 20:
-                    pass
-            else:
-                pass
-                
             return files
-            
         except Exception as e:
-            # 使用统一的错误处理函数
             handle_error_and_notify(e, f"获取本地文件列表时发生异常\n目录路径: {dir_path}", self.wechat_notifier, None, collect=False)
-            return []
+            return set()
+
+    def _get_remote_file_md5(self, full_path: str) -> str | None:
+        """查询目标网盘上指定文件的 md5（若 API 返回）
+        full_path: 形如 '/apps/xxx/dir/file.ext'
+        返回 md5 字符串或 None
+        """
+        try:
+            parent = posixpath.dirname(full_path).replace('\\', '/')
+            name = os.path.basename(full_path)
+            try:
+                items = self.client.list(parent)
+            except Exception as e:
+                handle_error_and_notify(e, f"查询目标文件MD5时列目录失败\n目录路径: {parent}", self.wechat_notifier, None, collect=False)
+                return None
+            for it in items:
+                try:
+                    if getattr(it, 'is_file', False) and os.path.basename(getattr(it, 'path', '')) == name:
+                        if hasattr(it, '_asdict'):
+                            d = it._asdict()
+                            return d.get('md5') or None
+                        return getattr(it, 'md5', None)
+                except Exception:
+                    continue
+            return None
+        except Exception as e:
+            handle_error_and_notify(e, f"获取目标文件MD5时发生异常\n文件路径: {full_path}", self.wechat_notifier, None, collect=False)
+            return None
 
     def _extract_file_info(self, file_dict):
         """从文件字典中提取文件信息
@@ -440,7 +458,8 @@ class BaiduStorage:
                     'fs_id': file_dict.get('fs_id', ''),
                     'path': file_dict.get('path', ''),
                     'size': file_dict.get('size', 0),
-                    'isdir': file_dict.get('isdir', 0)
+                    'isdir': file_dict.get('isdir', 0),
+                    'md5': file_dict.get('md5', None)
                 }
             return None
         except Exception as e:
@@ -638,7 +657,8 @@ class BaiduStorage:
                         if self.wechat_notifier:
                             error_msg = result.get('error', '未知错误')
                             detailed_error = f"批量转存中单个链接失败\n分享链接: {share_url}\n保存目录: {save_dir}\n错误信息: {error_msg}"
-                            handle_error_and_notify(ValueError(detailed_error), "批量转存单个链接失败", self.wechat_notifier, None, collect=False)
+                            # 聚合策略：仅收集，不即时发送
+                            handle_error_and_notify(ValueError(detailed_error), "批量转存单个链接失败", self.wechat_notifier, None, collect=True)
                     
                     results.append(result_record)
                     
@@ -696,12 +716,12 @@ class BaiduStorage:
 
     def parse_share_links_from_text(self, text, default_save_dir=None):
         """
-        从文本中解析分享链接，只支持 https://pan.baidu.com/s/xxxxx?pwd=xxxx 格式
-        支持每个链接后面指定保存目录
-        格式示例：
-        https://pan.baidu.com/s/1NXEVkmQFfTeB9gvgBYdX0A?pwd=f9c7 /保存目录1
-        https://pan.baidu.com/s/1example123?pwd=1234 /保存目录2
-        
+        解析分享链接，支持以下格式：
+        - https://pan.baidu.com/s/xxxxxx?pwd=abcd
+        - https://pan.baidu.com/s/xxxxxx 以及 同行/下一行 指定提取码与保存目录
+          示例：
+            https://pan.baidu.com/s/1abcDefGh
+            提取码: abcd /保存目录/子目录
         Args:
             text: 包含分享链接的文本
             default_save_dir: 默认保存目录（当链接后没有指定目录时使用）
@@ -710,66 +730,79 @@ class BaiduStorage:
         """
         try:
             share_configs = []
-            
-            # 只匹配带pwd参数的链接格式
-            url_pattern = r'https://pan\.baidu\.com/s/[A-Za-z0-9_-]+\?pwd=[A-Za-z0-9]{4}'
-            
-            # 按行分割文本
-            lines = text.strip().split('\n')
-            
-            for line_num, line in enumerate(lines, 1):
-                line = line.strip()
+
+            # 允许可选的 ?pwd=xxxx
+            url_pattern = r'https://pan\.baidu\.com/s/[A-Za-z0-9_-]+'  # 不强制要求 ?pwd=
+            pwd_inline_pattern = r'(?:\bpwd\b|密码|提取码)[:：]?\s*([A-Za-z0-9]{4})'
+
+            lines = text.strip().split('\n') if text else []
+
+            for line_idx, raw_line in enumerate(lines):
+                line = raw_line.strip()
                 if not line:
                     continue
-                
-                # 查找分享链接
-                match = re.search(url_pattern, line)
-                if not match:
+
+                m = re.search(url_pattern, line)
+                if not m:
                     continue
-                
-                url_with_pwd = match.group(0)
-                
-                # 分离URL和密码
-                try:
-                    share_url, pwd_part = url_with_pwd.split('?pwd=')
-                    pwd = pwd_part[:4]  # 取前4位作为密码
-                except ValueError:
-                    continue
-                
-                # 查找保存目录（在链接后面）
+
+                share_url = m.group(0)
+                pwd = None
                 save_dir = None
-                
-                # 尝试从同一行中提取目录
-                remaining_text = line[match.end():].strip()
-                if remaining_text and remaining_text.startswith('/'):
-                    # 找到第一个空格或行尾作为目录结束
-                    save_dir = remaining_text.split()[0]
-                
-                # 如果同一行没有目录，尝试查找下一行
-                if not save_dir and line_num < len(lines):
-                    next_line = lines[line_num].strip()
-                    if next_line and next_line.startswith('/') and not re.search(url_pattern, next_line):
-                        save_dir = next_line.split()[0]
-                
-                # 如果没有指定目录，使用默认目录
+
+                # 1) URL 内自带 ?pwd=xxxx（优先识别）
+                if '?pwd=' in line[m.start():]:
+                    try:
+                        _, pwd_part = line[m.start():].split('?pwd=', 1)
+                        pwd = pwd_part[:4]
+                    except Exception:
+                        pwd = None
+
+                # 2) 同行剩余文本里查找“pwd/提取码/密码”
+                if not pwd:
+                    remain = line[m.end():]
+                    mm = re.search(pwd_inline_pattern, remain, flags=re.IGNORECASE)
+                    if mm:
+                        pwd = mm.group(1)
+
+                # 3) 下一行里查找密码与保存目录（若下一行不是另一个 URL）
+                next_line = lines[line_idx + 1].strip() if line_idx + 1 < len(lines) else ''
+                if not re.search(url_pattern, next_line):
+                    if not pwd and next_line:
+                        mm2 = re.search(pwd_inline_pattern, next_line, flags=re.IGNORECASE)
+                        if mm2:
+                            pwd = mm2.group(1)
+
+                # 保存目录：优先同行 URL 之后第一个以 / 开头的 token；否则看下一行
+                remain_after_url = line[m.end():].strip()
+                if remain_after_url:
+                    tokens = remain_after_url.split()
+                    for t in tokens:
+                        if t.startswith('/'):
+                            save_dir = t
+                            break
+                if not save_dir and next_line and not re.search(url_pattern, next_line):
+                    tokens2 = next_line.split()
+                    for t in tokens2:
+                        if t.startswith('/'):
+                            save_dir = t
+                            break
+
                 if not save_dir:
                     save_dir = default_save_dir
-                
-                # 构建配置
+
                 config = {
                     'share_url': share_url,
                     'pwd': pwd,
-                    'line_number': line_num
+                    'line_number': line_idx + 1
                 }
-                
                 if save_dir:
                     config['save_dir'] = save_dir
-                
+
                 share_configs.append(config)
-            
+
             return share_configs
-            
-        except Exception as e:
+        except Exception:
             return []
 
     def transfer_shares_from_text(self, text, default_save_dir=None, progress_callback=None):
@@ -798,7 +831,7 @@ class BaiduStorage:
                     # 收集错误
                     ec.capture(ValueError(error_msg), "解析分享链接失败")
                     # 统一错误处理
-                    handle_error_and_notify(ValueError(error_msg), "解析分享链接失败", self.wechat_notifier, None, collect=False)
+                    handle_error_and_notify(ValueError(error_msg), "解析分享链接失败", self.wechat_notifier, None, collect=True)
                     return {
                         'success': False,
                         'error': error_msg,
@@ -858,7 +891,8 @@ class BaiduStorage:
                 full_error_msg += f"\n分享链接: {share_url}"
             if save_dir:
                 full_error_msg += f"\n保存目录: {save_dir}"
-            handle_error_and_notify(ValueError(full_error_msg), "转存失败", self.wechat_notifier, None, collect=False)
+            # 聚合策略：仅收集，延迟到结尾统一发送
+            handle_error_and_notify(ValueError(full_error_msg), "转存失败", self.wechat_notifier, None, collect=True)
         
         return {'success': False, 'error': error_msg}
 
@@ -938,11 +972,11 @@ class BaiduStorage:
                     progress_callback('info', f'【步骤2/4】扫描本地目录: {save_dir}')
                 
                 # 获取本地文件列表
-                local_files = []
+                local_files: set[str] = set()
                 if save_dir:
                     local_files = self.list_local_files(save_dir)
                     if progress_callback:
-                        progress_callback('info', f'本地目录中有 {len(local_files)} 个文件')
+                        progress_callback('info', f'本地目录中有 {len(local_files)} 个文件（按相对路径统计）')
                 
                 # 步骤3：准备转存（对比文件、准备目录）
                 target_dir = save_dir
@@ -975,15 +1009,33 @@ class BaiduStorage:
                                 progress_callback('info', f'文件被正则过滤掉: {clean_path}')
                             continue
                     
-                    # 去重检查逻辑
-                    clean_normalized = self._normalize_path(clean_path, file_only=True)
-                    final_normalized = self._normalize_path(final_path, file_only=True)
-                    
-                    # 检查文件是否已存在
-                    if final_normalized in local_files:
-                        if progress_callback:
-                            progress_callback('info', f'文件已存在，跳过: {final_path}')
-                        continue
+                    # 去重检查逻辑：使用相对路径去重，避免不同子目录同名误判
+                    clean_rel = posixpath.normpath(clean_path.lstrip('/'))
+                    final_rel = posixpath.normpath(final_path.lstrip('/'))
+
+                    # 检查文件是否已存在（对比相对路径）
+                    if final_rel in local_files:
+                        src_md5 = file_info.get('md5') if isinstance(file_info, dict) else None
+                        if src_md5:
+                            # 可获取 md5 时：与目标同路径文件的 md5 对比再决定是否跳过
+                            try:
+                                dest_full_path = posixpath.join(target_dir if target_dir else '/', final_rel)
+                                dest_md5 = self._get_remote_file_md5(dest_full_path)
+                            except Exception:
+                                dest_md5 = None
+                            if dest_md5 and dest_md5 == src_md5:
+                                if progress_callback:
+                                    progress_callback('info', f'文件已存在且内容相同（MD5 相同），跳过: {final_path}')
+                                continue
+                            else:
+                                if progress_callback:
+                                    progress_callback('info', f'同路径已存在但内容不同（或无法获取MD5），将继续转存: {final_path}')
+                                # 不 continue，后续加入 transfer_list
+                        else:
+                            # 无法获取源 MD5：保持原有策略，按路径命中直接跳过
+                            if progress_callback:
+                                progress_callback('info', f'文件已存在（无MD5校验），跳过: {final_path}')
+                            continue
                     
                     # 转存到原始路径的目录
                     if target_dir is not None and clean_path is not None:
@@ -1167,6 +1219,7 @@ class BaiduStorage:
                 collect_error(e, f"转存分享链接时发生异常\n分享链接: {share_url}")
                 # 打印详细的错误信息
                 print_detailed_error(e, f"转存分享链接时发生异常\n分享链接: {share_url}", self.wechat_notifier, None)
+                # 仅收集，返回错误由上层汇总处理
                 return {'success': False, 'error': parsed_error}
             
 

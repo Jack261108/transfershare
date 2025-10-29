@@ -172,6 +172,22 @@ class WeChatNotifier:
         
         return self.send_message(message, "markdown")
     
+    def _mask_sensitive(self, text: str) -> str:
+        try:
+            from utils import mask_cookies as _mask_cookies
+        except Exception:
+            def _mask_cookies(t):
+                return t
+        import re as _re
+        if text is None:
+            return text
+        masked = _mask_cookies(text)
+        masked = _re.sub(r'(\bpwd=)([A-Za-z0-9]{4})', r'\1***', masked, flags=_re.IGNORECASE)
+        masked = _re.sub(r'(\buk\s*[:=]\s*)(\d+)', r'\1***', masked, flags=_re.IGNORECASE)
+        masked = _re.sub(r'(\bshare_id\s*[:=]\s*)(\d+)', r'\1***', masked, flags=_re.IGNORECASE)
+        masked = _re.sub(r'(\bbdstoken\s*[:=]\s*)([A-Za-z0-9_-]+)', r'\1***', masked, flags=_re.IGNORECASE)
+        return masked
+
     def send_error_notification(self, error_msg, config):
         """
         发送错误通知

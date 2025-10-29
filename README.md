@@ -59,6 +59,21 @@ graph LR
 
 ## 🔧 环境准备
 
+### 运行依赖安装
+
+```bash
+pip install -r requirements.txt
+```
+
+### 可选：Playwright（仅用于获取 Cookies 的辅助脚本）
+
+```bash
+pip install -r requirements-playwright.txt
+python -m playwright install
+```
+
+> 不使用脚本获取 Cookies 的用户，可跳过此步骤。
+
 ### 使用脚本一键获取 Cookies 并可选写入 Secrets（推荐）
 
 脚本：`save_baidu_cookies.py` — 通过真实浏览器登录百度网盘，自动提取 Cookie，并可写入本地 env 文件或 GitHub Secrets。

@@ -12,42 +12,39 @@ _error_collections = defaultdict(list)
 _collection_lock = threading.Lock()
 
 
+def _mask_sensitive(text: str) -> str:
+    from utils import mask_cookies as _mask_cookies  # local import to avoid cycles
+    import re as _re
+    if text is None:
+        return text
+    masked = _mask_cookies(text)
+    # mask pwd=xxxx
+    masked = _re.sub(r'(\bpwd=)([A-Za-z0-9]{4})', r'\1***', masked, flags=_re.IGNORECASE)
+    # mask uk/share_id/bdstoken (keep key show, hide value)
+    masked = _re.sub(r'(\buk\s*[:=]\s*)(\d+)', r'\1***', masked, flags=_re.IGNORECASE)
+    masked = _re.sub(r'(\bshare_id\s*[:=]\s*)(\d+)', r'\1***', masked, flags=_re.IGNORECASE)
+    masked = _re.sub(r'(\bbdstoken\s*[:=]\s*)([A-Za-z0-9_-]+)', r'\1***', masked, flags=_re.IGNORECASE)
+    return masked
+
 def print_detailed_error(error, context="", wechat_notifier=None, config=None):
     """
-    仅打印详细的错误信息（不直接发送通知）
-    
-    Args:
-        error: 异常对象
-        context: 错误上下文信息
-        wechat_notifier: 微信通知器实例（保留参数以兼容旧签名）
-        config: 配置信息（保留参数以兼容旧签名）
+    仅打印详细的错误信息（不直接发送通知），并对敏感信息进行掩码
     """
-    error_msg = f"发生异常: {context}\n"
-    error_msg += f"  错误类型: {type(error).__name__}\n"
-    error_msg += f"  错误信息: {str(error)}\n"
-    error_msg += f"  详细堆栈: {traceback.format_exc()}"
-    
-    print(error_msg)
-    # 注意：不在此处发送企业微信通知，避免与上层统一处理重复发送
+    base = f"发生异常: {context}\n"
+    base += f"  错误类型: {type(error).__name__}\n"
+    base += f"  错误信息: {str(error)}\n"
+    base += f"  详细堆栈: {traceback.format_exc()}"
+    print(_mask_sensitive(base))
+    # 不在此处发送企业微信通知，避免与上层统一处理重复发送
 
 
 def format_error_info(error, context=""):
-    """
-    格式化错误信息
-    
-    Args:
-        error: 异常对象
-        context: 错误上下文信息
-        
-    Returns:
-        str: 格式化的错误信息
-    """
-    error_info = f"发生异常: {context}\n"
-    error_info += f"  错误类型: {type(error).__name__}\n"
-    error_info += f"  错误信息: {str(error)}\n"
-    error_info += f"  详细堆栈: {traceback.format_exc()}"
-    
-    return error_info
+    """格式化错误信息（包含敏感信息掩码）"""
+    base = f"发生异常: {context}\n"
+    base += f"  错误类型: {type(error).__name__}\n"
+    base += f"  错误信息: {str(error)}\n"
+    base += f"  详细堆栈: {traceback.format_exc()}"
+    return _mask_sensitive(base)
 
 
 def send_wechat_alert(wechat_notifier, error, context="", config=None):
@@ -62,7 +59,8 @@ def send_wechat_alert(wechat_notifier, error, context="", config=None):
     """
     if wechat_notifier:
         detailed_error = f"{context}\n错误类型: {type(error).__name__}\n错误信息: {str(error)}\n详细堆栈: {traceback.format_exc()}"
-        wechat_notifier.send_error_notification(detailed_error, config)
+        # 统一掩码
+        wechat_notifier.send_error_notification(_mask_sensitive(detailed_error), config)
 
 
 def start_error_collection(context=""):
