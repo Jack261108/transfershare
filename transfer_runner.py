@@ -3,6 +3,7 @@
 
 import os
 import sys
+import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from storage import BaiduStorage
@@ -28,6 +29,50 @@ def get_env_config():
         raise ValueError("SHARE_URLS 环境变量未设置")
     
     return config
+
+
+def get_config():
+    """优先使用本地 config.json；不存在时再读环境变量"""
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        cfg_path = os.path.join(base_dir, 'config.json')
+        if os.path.isfile(cfg_path):
+            print(f"检测到本地配置文件: {cfg_path}，优先使用本地配置")
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            # 兼容字段名，提供默认值
+            cookies = data.get('cookies') or data.get('BAIDU_COOKIES')
+            share_urls = data.get('share_urls') or data.get('SHARE_URLS')
+            save_dir = data.get('save_dir') or data.get('SAVE_DIR', '/AutoTransfer')
+            wechat_webhook = data.get('wechat_webhook') or data.get('WECHAT_WEBHOOK')
+
+            # 允许 share_urls 为列表或字符串（多行/逗号分隔）
+            if isinstance(share_urls, list):
+                share_urls = '\n'.join([s for s in share_urls if isinstance(s, str) and s.strip()])
+            elif isinstance(share_urls, str):
+                # 统一换行分隔，兼容用逗号分隔的情况
+                if ',' in share_urls and '\n' not in share_urls:
+                    share_urls = '\n'.join([x.strip() for x in share_urls.split(',') if x.strip()])
+            else:
+                share_urls = None
+
+            cfg = {
+                'cookies': cookies,
+                'share_urls': share_urls,
+                'save_dir': save_dir or '/AutoTransfer',
+                'wechat_webhook': wechat_webhook,
+            }
+
+            # 基本校验，与环境变量方式一致
+            if not cfg['cookies']:
+                raise ValueError("配置文件缺少 cookies (cookies/BAIDU_COOKIES)")
+            if not cfg['share_urls']:
+                raise ValueError("配置文件缺少 share_urls (share_urls/SHARE_URLS)")
+            return cfg
+    except Exception as e:
+        print(f"读取本地配置文件失败，回退到环境变量: {e}")
+    # 回退到环境变量
+    return get_env_config()
 
 def check_network_connectivity():
     """检查网络连通性"""
@@ -89,8 +134,8 @@ def main():
     notifier = None
     
     try:
-        # 获取配置
-        config = get_env_config()
+        # 获取配置（优先本地 config.json）
+        config = get_config()
         print("配置信息:")
         # 修复f-string中不能使用反斜杠的问题
         newline = '\n'
