@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import functools
+import logging
 from baidupcs_py.baidupcs import BaiduPCSApi
 from baidupcs_py.baidupcs.errors import BaiduPCSError
 
@@ -32,6 +34,58 @@ class BaiduStorage:
         
         # 初始化微信通知器
         self.wechat_notifier = WeChatNotifier(wechat_webhook) if wechat_webhook else None
+    def _inject_timeout(self):
+        """
+        为客户端请求方法注入超时逻辑
+        """
+        pcs_candidate = self._get_pcs_candidate()
+
+        if pcs_candidate:
+            if not getattr(pcs_candidate, '_timeout_patched', False):
+                # 执行注入操作
+                self._patch_request_methods(pcs_candidate)
+                logging.info("成功注入超时逻辑到 BaiduPCSApi 请求方法。")
+            else:
+                logging.info("超时逻辑已存在，无需重复注入。")
+        else:
+            logging.warning("未找到可用的 pcs 属性，无法注入超时逻辑。")
+
+    def _get_pcs_candidate(self):
+        """
+        获取可用的 BaiduPCS 实例属性
+        """
+        for attr in ('_pcs', 'pcs', 'baidupcs', '_baidupcs'):
+            if hasattr(self.client, attr):
+                logging.info(f"找到 pcs 属性：{attr}")
+                return getattr(self.client, attr)
+        logging.warning("未找到任何有效的 pcs 属性。")
+        return None
+
+    def _patch_request_methods(self, pcs_candidate):
+        """
+        为 BaiduPCS 实例中的请求方法注入超时
+        """
+        def _wrap_timeout(fn):
+            """
+            装饰器：为请求方法注入超时
+            """
+            @functools.wraps(fn)
+            def _wrapped(*args, **kwargs):
+                if 'timeout' not in kwargs or kwargs.get('timeout') is None:
+                    kwargs['timeout'] = self.default_timeout
+                return fn(*args, **kwargs)
+            return _wrapped
+
+        # 注入超时逻辑
+        request_methods = ['_requestf', '_request_get', '_request_post', 'request', '_request']
+        for method_name in request_methods:
+            if hasattr(pcs_candidate, method_name):
+                logging.info(f"为方法 {method_name} 注入超时逻辑。")
+                setattr(pcs_candidate, method_name, _wrap_timeout(getattr(pcs_candidate, method_name)))
+
+        # 标记已注入超时设置
+        setattr(pcs_candidate, '_timeout_patched', True)
+        logging.info("成功注入超时设置并标记 '_timeout_patched'。")
         
     def _retry_on_network_error(self, func, *args, **kwargs):
         """网络请求重试装饰器"""
@@ -100,6 +154,9 @@ class BaiduStorage:
                 for retry in range(3):
                     try:
                         self.client = BaiduPCSApi(cookies=cookies_dict)
+                        # 获取超时时间，缺省为 60 秒
+                        self.default_timeout = int(os.getenv('BAIDU_REQUEST_TIMEOUT', '60'))
+                        self._inject_timeout()
                         # 验证客户端
                         quota = self.client.quota()
                         total_gb = round(quota[0] / (1024**3), 2)

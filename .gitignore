@@ -59,3 +59,5 @@ test_*.py
 *_test.py
 .python-version
 transfer_runner_local.py
+share_urls.txt
+config.txt
