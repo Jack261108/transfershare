@@ -129,6 +129,8 @@ class BaiduStorage:
                     # 收集最终失败的错误
                     collect_error(e, f"网络请求最终失败，已重试{self.max_retries}次")
                     break
+            elif "error_code: 4" in error_str:
+                break
             else:
                 # 非网络错误，直接抛出（由 ErrorCollector 统一处理聚合）
                 raise last_error
@@ -436,7 +438,7 @@ class BaiduStorage:
             try:
                 self.client.list(dir_path)
             except Exception as e:
-                if "No such file or directory" in str(e) or "-9" in str(e):
+                if "error_code: 31066, message: 文件不存在" in str(e) or "-9" in str(e):
                     return set()
                 else:
                     handle_error_and_notify(e, f"检查本地目录时发生错误\n目录路径: {dir_path}", self.wechat_notifier,
@@ -1115,8 +1117,9 @@ class BaiduStorage:
                                 continue
                             else:
                                 if progress_callback:
-                                    progress_callback('info',
-                                                      f'同路径已存在但内容不同（或无法获取MD5），将继续转存: {final_path}')
+                                    progress_callback('warning',
+                                                      f'同路径已存在,但内容不同(md5不同),跳过： {final_path}')
+                                continue
                                 # 不 continue，后续加入 transfer_list
                         else:
                             # 无法获取源 MD5：保持原有策略，按路径命中直接跳过
@@ -1228,10 +1231,6 @@ class BaiduStorage:
                                 if self.wechat_notifier:
                                     print_detailed_error(retry_e, f"转存失败: {dir_path}", self.wechat_notifier, None)
                                 return {'success': False, 'error': error_msg}
-                        elif "error_code: 4" in str(e):
-                            if progress_callback:
-                                progress_callback('info', "部分转存成功,有重复文件")
-                            return {'success': True,'message':'部分转存成功,有重复文件'}
                         else:
                             error_msg = f'转存失败: {dir_path} - {str(e)}'
                             if progress_callback:
