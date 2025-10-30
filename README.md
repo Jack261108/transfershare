@@ -133,6 +133,35 @@ python save_baidu_cookies.py --headless
 
 ## ⚙️ 详细配置
 
+### 本地配置文件 config.json（优先级高于环境变量）
+
+支持在项目根目录提供 `config.json`，程序将优先读取本地配置；当文件缺失或字段不完整时，自动回退到环境变量方案。
+
+- 文件路径：`./config.json`
+- 字段说明：
+  - `cookies` 或 `BAIDU_COOKIES`：百度网盘 Cookies（至少包含 BDUSS 与 STOKEN），例如 `BDUSS=...; STOKEN=...`
+  - `share_urls` 或 `SHARE_URLS`：分享链接集合，支持数组或字符串（逗号/换行分隔均可）
+  - `save_dir` 或 `SAVE_DIR`：保存目录，默认 `/AutoTransfer`
+  - `wechat_webhook` 或 `WECHAT_WEBHOOK`：企业微信机器人 Webhook，可选
+
+示例：
+```json
+{
+  "cookies": "BDUSS=xxx; STOKEN=xxx",
+  "share_urls": [
+    "https://pan.baidu.com/s/xxxxxx?pwd=abcd",
+    "https://pan.baidu.com/s/yyyyyy?pwd=efgh /保存目录/子目录"
+  ],
+  "save_dir": "/AutoTransfer",
+  "wechat_webhook": ""
+}
+```
+
+说明：
+- `share_urls` 为字符串时，支持用逗号或换行分隔，程序会自动归一化为按行处理。
+- 保存目录不存在时会自动创建。
+
+
 ### 必需配置
 
 在 `Settings` → `Secrets and variables` → `Actions` 中添加：
