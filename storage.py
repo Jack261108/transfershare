@@ -117,26 +117,28 @@ class BaiduStorage:
             except Exception as e:
                 last_error = e
                 error_str = str(e)
-            if any(keyword in error_str.lower() for keyword in [
-                'baidupcs._request', 'network', 'timeout', 'connection',
-                'urllib', 'requests', 'http', 'ssl'
-            ]):
-                if attempt < self.max_retries - 1:
-                    print(f"网络请求失败（第{attempt + 1}次尝试）: {error_str}")
-                    continue
-                else:
-                    print(f"网络请求最终失败，已重试{self.max_retries}次")
-                    # 收集最终失败的错误
-                    collect_error(e, f"网络请求最终失败，已重试{self.max_retries}次")
+                if any(keyword in error_str.lower() for keyword in [
+                    'baidupcs._request', 'network', 'timeout', 'connection',
+                    'urllib', 'requests', 'http', 'ssl'
+                ]):
+                    if attempt < self.max_retries - 1:
+                        print(f"网络请求失败（第{attempt + 1}次尝试）: {error_str}")
+                        continue
+                    else:
+                        print(f"网络请求最终失败，已重试{self.max_retries}次")
+                        # 收集最终失败的错误
+                        collect_error(e, f"网络请求最终失败，已重试{self.max_retries}次")
+                        break
+                elif "error_code: 4" in error_str:
+                    last_error=None
                     break
-            elif "error_code: 4" in error_str:
-                break
-            else:
-                # 非网络错误，直接抛出（由 ErrorCollector 统一处理聚合）
-                raise last_error
+                else:
+                    # 非网络错误，直接抛出（由 ErrorCollector 统一处理聚合）
+                    raise e
 
         # 所有重试都失败，抛出最后一个错误（由 ErrorCollector 统一处理聚合）
-        raise last_error
+        if last_error is not None:
+            raise last_error
 
     def _init_client(self, cookies):
         """初始化客户端"""
@@ -282,6 +284,13 @@ class BaiduStorage:
             bool: 是否成功
         """
         try:
+            # 检查客户端是否可用
+            if not self.client:
+                error_msg = "客户端未初始化或初始化失败"
+                handle_error_and_notify(ValueError(error_msg), "创建目录失败: 客户端不可用", self.wechat_notifier, None,
+                                        collect=True)
+                return False
+                
             path = self._normalize_path(path)
             if path in ('', '/'):  # 根目录视为已存在
                 return True
@@ -432,6 +441,13 @@ class BaiduStorage:
         返回相对于 dir_path 的规范化相对路径（使用正斜杠），用于去重对比
         """
         try:
+            # 检查客户端是否可用
+            if not self.client:
+                error_msg = "客户端未初始化或初始化失败"
+                handle_error_and_notify(ValueError(error_msg), f"获取本地文件列表失败: 客户端不可用", self.wechat_notifier,
+                                        None, collect=False)
+                return set()
+
             files = []
 
             # 检查目录是否存在
@@ -541,6 +557,13 @@ class BaiduStorage:
         """
         files = []
         try:
+            # 检查客户端是否可用
+            if not self.client:
+                error_msg = "客户端未初始化或初始化失败"
+                handle_error_and_notify(ValueError(error_msg), f"获取共享目录文件失败: 客户端不可用", self.wechat_notifier,
+                                        None, collect=False)
+                return files
+                
             # 分页获取所有文件
             page = 1
             page_size = 100
@@ -584,7 +607,8 @@ class BaiduStorage:
                     sub_file_dict = sub_file if isinstance(sub_file, dict) else {}
 
                 # 如果是目录，递归获取
-                if sub_file.is_dir:
+                is_dir = getattr(sub_file, 'is_dir', False)
+                if is_dir:
                     sub_dir_files = self._list_shared_dir_files(sub_file, uk, share_id, bdstoken)
                     files.extend(sub_dir_files)
                 else:
@@ -592,9 +616,11 @@ class BaiduStorage:
                     file_info = self._extract_file_info(sub_file_dict)
                     if file_info:
                         # 去掉路径中的 sharelink 部分
-                        file_info['path'] = re.sub(r'^/sharelink\d*-\d+/?', '', sub_file.path)
-                        # 去掉开头的斜杠
-                        file_info['path'] = file_info['path'].lstrip('/')
+                        sub_file_path = getattr(sub_file, 'path', '')
+                        if sub_file_path:
+                            file_info['path'] = re.sub(r'^/sharelink\d*-\d+/?', '', sub_file_path)
+                            # 去掉开头的斜杠
+                            file_info['path'] = file_info['path'].lstrip('/')
                         files.append(file_info)
 
         except Exception as e:
@@ -982,6 +1008,12 @@ class BaiduStorage:
                 'transferred_files': list  # 成功转存的文件列表
             }
         """
+        # 检查客户端是否可用
+        if not self.client:
+            error_msg = "客户端未初始化或初始化失败"
+            return self._send_error_and_return(error_msg, share_url, save_dir, 
+                                             ValueError(error_msg), "转存分享文件: 客户端不可用")
+
         with ErrorCollector(f"转存分享文件: {share_url}", self.wechat_notifier, None) as ec:
 
             # 规范化保存路径
@@ -1321,6 +1353,12 @@ class BaiduStorage:
     def get_share_folder_name(self, share_url, pwd=None):
         """获取分享链接的主文件夹名称"""
         try:
+            # 检查客户端是否可用
+            if not self.client:
+                error_msg = "客户端未初始化或初始化失败"
+                handle_error_and_notify(ValueError(error_msg), f"获取分享文件夹名称失败: 客户端不可用", self.wechat_notifier,
+                                        None, collect=True)
+                return {'success': False, 'error': error_msg}
 
             # 访问分享链接
             if pwd:
@@ -1337,7 +1375,7 @@ class BaiduStorage:
                 return {'success': False, 'error': error_msg}
 
             # 获取主文件夹名称
-            if len(shared_paths) == 1 and shared_paths[0].is_dir:
+            if len(shared_paths) == 1 and hasattr(shared_paths[0], 'is_dir') and shared_paths[0].is_dir:
                 # 如果只有一个文件夹，使用该文件夹名称
                 folder_name = os.path.basename(shared_paths[0].path)
                 return {'success': True, 'folder_name': folder_name}
@@ -1345,7 +1383,7 @@ class BaiduStorage:
                 # 如果有多个文件或不是文件夹，使用分享链接的默认名称或第一个项目的名称
                 if shared_paths:
                     first_item = shared_paths[0]
-                    if first_item.is_dir:
+                    if hasattr(first_item, 'is_dir') and first_item.is_dir:
                         folder_name = os.path.basename(first_item.path)
                     else:
                         # 如果第一个是文件，尝试获取文件名（去掉扩展名）
