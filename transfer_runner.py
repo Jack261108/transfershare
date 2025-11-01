@@ -90,7 +90,7 @@ def check_network_connectivity():
                 else:
                     print(f"⚠️ 百度主站连通异常: HTTP {response.status_code}")
             except Exception as e:
-                print(f"❌ 百度主站连通失败: {str(e)}")
+                print(f"❌ 百度主站连通失败: {str(object=e)}")
                 
             # 检查百度网盘API
             try:
