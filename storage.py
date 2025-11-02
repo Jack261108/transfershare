@@ -4,28 +4,21 @@
 from collections import Counter
 import functools
 from baidupcs_py.baidupcs import BaiduPCSApi
-from baidupcs_py.baidupcs.errors import BaiduPCSError
 
-import json
 import os
 import time
 import re
 import posixpath
 from threading import Lock
 import random
-import traceback
 
 # 添加 WeChatNotifier 和工具方法导入
 from wechat_notifier import WeChatNotifier
 from utils import (
     print_detailed_error,
-    format_error_info,
-    send_wechat_alert,
     collect_error,
     handle_error_and_notify,
     ErrorCollector,
-    error_collection,
-    mask_cookies,
 )
 
 
