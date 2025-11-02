@@ -37,12 +37,13 @@ from typing import Iterable, Optional
 
 try:
     from playwright.sync_api import sync_playwright, BrowserContext  # noqa: F401
+
     PLAYWRIGHT_AVAILABLE = True
 except Exception:
     PLAYWRIGHT_AVAILABLE = False
 
-USER_DATA_DIR = str(Path.home() / ".baidu_pan_profile")   # 持久化用户目录
-OUTPUT_ENV = "baidu_cookies.env"                          # 输出 env 片段文件
+USER_DATA_DIR = str(Path.home() / ".baidu_pan_profile")  # 持久化用户目录
+OUTPUT_ENV = "baidu_cookies.env"  # 输出 env 片段文件
 LOGIN_URL = "https://pan.baidu.com/"
 
 # 按域优先级选取同名 Cookie，越靠前优先级越高
@@ -68,7 +69,9 @@ PREFERRED_ORDER = [
 ]
 
 
-def find_cookie(cookies: Iterable[dict], name: str, domains=PREFERRED_DOMAINS) -> Optional[str]:
+def find_cookie(
+    cookies: Iterable[dict], name: str, domains=PREFERRED_DOMAINS
+) -> Optional[str]:
     """在 cookies 集合中查找指定名称且域名匹配的 cookie 值"""
     best_value = None
     best_rank = -1
@@ -147,7 +150,12 @@ def build_cookie_string(cookie_map: dict) -> str:
 
 def ensure_gh():
     try:
-        subprocess.run(["gh", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        subprocess.run(
+            ["gh", "--version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True,
+        )
     except Exception:
         print("gh CLI 未找到。请先安装并登录：\n  brew install gh\n  gh auth login")
         sys.exit(1)
@@ -158,7 +166,9 @@ def set_secret(repo: str, name: str, value: str):
         print(f"跳过 {name}：值为空")
         return
     print(f"设置 {name} 到 {repo}")
-    subprocess.run(["gh", "secret", "set", name, "-R", repo, "--body", value], check=True)
+    subprocess.run(
+        ["gh", "secret", "set", name, "-R", repo, "--body", value], check=True
+    )
 
 
 def read_env_values(env_path: Path):
@@ -166,9 +176,11 @@ def read_env_values(env_path: Path):
         print(f"找不到 env 文件: {env_path}")
         sys.exit(1)
     text = env_path.read_text(encoding="utf-8")
+
     def extract(key: str):
         m = re.search(rf'^{re.escape(key)}="(.*)"\s*$', text, re.MULTILINE)
         return m.group(1) if m else ""
+
     return {
         "BAIDU_COOKIES": extract("BAIDU_COOKIES"),
         "BAIDU_COOKIES_FULL": extract("BAIDU_COOKIES_FULL"),
@@ -177,13 +189,17 @@ def read_env_values(env_path: Path):
 
 def do_browser_login_and_extract(headless: bool = False):
     if not PLAYWRIGHT_AVAILABLE:
-        print("Playwright 未安装。请先执行：\n  pip install playwright\n  python -m playwright install")
+        print(
+            "Playwright 未安装。请先执行：\n  pip install playwright\n  python -m playwright install"
+        )
         sys.exit(1)
 
     from playwright.sync_api import sync_playwright  # 延迟导入，避免上方类型问题
 
     print("即将启动浏览器，请在弹出窗口中完成百度网盘登录（可扫码登录）。")
-    print("登录成功后脚本会自动抓取 Cookie（含 BDUSS/STOKEN 及全部 Cookie）。最多等待 10 分钟...")
+    print(
+        "登录成功后脚本会自动抓取 Cookie（含 BDUSS/STOKEN 及全部 Cookie）。最多等待 10 分钟..."
+    )
 
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
@@ -203,7 +219,9 @@ def do_browser_login_and_extract(headless: bool = False):
 
         if not (bduss and stoken):
             print("\n未能获取到完整的最小必需 Cookie（BDUSS/STOKEN）。")
-            print("建议：\n  - 登录后刷新页面或点击右上角登录\n  - 扫码通常更稳\n  - 重新运行脚本重试")
+            print(
+                "建议：\n  - 登录后刷新页面或点击右上角登录\n  - 扫码通常更稳\n  - 重新运行脚本重试"
+            )
         else:
             print("\n已获取最小必需 Cookie（请妥善保管，不要泄露）：")
             print(f"  BDUSS  = {mask_token(bduss)}")
@@ -221,13 +239,23 @@ def do_browser_login_and_extract(headless: bool = False):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="获取百度网盘 Cookies 并可选写入 GitHub Secrets")
+    ap = argparse.ArgumentParser(
+        description="获取百度网盘 Cookies 并可选写入 GitHub Secrets"
+    )
     ap.add_argument("--repo", help="目标仓库 owner/repo，提供则写入 Secrets")
-    ap.add_argument("--env", default=OUTPUT_ENV, help=f"env 文件路径（默认 {OUTPUT_ENV}）")
-    ap.add_argument("--from-env", action="store_true", help="仅从 env 文件写 Secrets，不启浏览器")
+    ap.add_argument(
+        "--env", default=OUTPUT_ENV, help=f"env 文件路径（默认 {OUTPUT_ENV}）"
+    )
+    ap.add_argument(
+        "--from-env", action="store_true", help="仅从 env 文件写 Secrets，不启浏览器"
+    )
     ap.add_argument("--min-only", action="store_true", help="仅写 BAIDU_COOKIES")
     ap.add_argument("--full-only", action="store_true", help="仅写 BAIDU_COOKIES_FULL")
-    ap.add_argument("--headless", action="store_true", help="以无头模式启动浏览器（不推荐，扫码不便）")
+    ap.add_argument(
+        "--headless",
+        action="store_true",
+        help="以无头模式启动浏览器（不推荐，扫码不便）",
+    )
     args = ap.parse_args()
 
     cookies_min = ""
@@ -244,12 +272,14 @@ def main():
         if cookies_min:
             lines.append(f'BAIDU_COOKIES="{cookies_min}"')
         else:
-            lines.append('# 未捕获到 BDUSS/STOKEN，请确认已完成登录后重试')
+            lines.append("# 未捕获到 BDUSS/STOKEN，请确认已完成登录后重试")
             lines.append('BAIDU_COOKIES=""')
         lines.append(f'BAIDU_COOKIES_FULL="{cookies_full}"')
         Path(args.env).write_text("\n".join(lines) + "\n", encoding="utf-8")
         print(f"\n已写入 {args.env}")
-        print("说明：\n  - BAIDU_COOKIES       → 仅 BDUSS 与 STOKEN（最小必需）\n  - BAIDU_COOKIES_FULL  → 合并后的全部 Cookie（优先 pan.baidu.com）")
+        print(
+            "说明：\n  - BAIDU_COOKIES       → 仅 BDUSS 与 STOKEN（最小必需）\n  - BAIDU_COOKIES_FULL  → 合并后的全部 Cookie（优先 pan.baidu.com）"
+        )
 
     if args.repo:
         ensure_gh()

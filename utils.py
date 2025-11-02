@@ -15,16 +15,27 @@ _collection_lock = threading.Lock()
 def _mask_sensitive(text: str) -> str:
     from utils import mask_cookies as _mask_cookies  # local import to avoid cycles
     import re as _re
+
     if text is None:
         return text
     masked = _mask_cookies(text)
     # mask pwd=xxxx
-    masked = _re.sub(r'(\bpwd=)([A-Za-z0-9]{4})', r'\1***', masked, flags=_re.IGNORECASE)
+    masked = _re.sub(
+        r"(\bpwd=)([A-Za-z0-9]{4})", r"\1***", masked, flags=_re.IGNORECASE
+    )
     # mask uk/share_id/bdstoken (keep key show, hide value)
-    masked = _re.sub(r'(\buk\s*[:=]\s*)(\d+)', r'\1***', masked, flags=_re.IGNORECASE)
-    masked = _re.sub(r'(\bshare_id\s*[:=]\s*)(\d+)', r'\1***', masked, flags=_re.IGNORECASE)
-    masked = _re.sub(r'(\bbdstoken\s*[:=]\s*)([A-Za-z0-9_-]+)', r'\1***', masked, flags=_re.IGNORECASE)
+    masked = _re.sub(r"(\buk\s*[:=]\s*)(\d+)", r"\1***", masked, flags=_re.IGNORECASE)
+    masked = _re.sub(
+        r"(\bshare_id\s*[:=]\s*)(\d+)", r"\1***", masked, flags=_re.IGNORECASE
+    )
+    masked = _re.sub(
+        r"(\bbdstoken\s*[:=]\s*)([A-Za-z0-9_-]+)",
+        r"\1***",
+        masked,
+        flags=_re.IGNORECASE,
+    )
     return masked
+
 
 def print_detailed_error(error, context="", wechat_notifier=None, config=None):
     """
@@ -50,7 +61,7 @@ def format_error_info(error, context=""):
 def send_wechat_alert(wechat_notifier, error, context="", config=None):
     """
     发送微信告警
-    
+
     Args:
         wechat_notifier: 微信通知器实例
         error: 异常对象
@@ -66,19 +77,21 @@ def send_wechat_alert(wechat_notifier, error, context="", config=None):
 def start_error_collection(context=""):
     """
     开始错误收集
-    
+
     Args:
         context: 错误上下文信息
     """
     thread_id = threading.get_ident()
     with _collection_lock:
-        _error_collections[thread_id] = [{"context": context, "errors": [], "seen": set()}]
+        _error_collections[thread_id] = [
+            {"context": context, "errors": [], "seen": set()}
+        ]
 
 
 def collect_error(error, context=""):
     """
     收集错误信息
-    
+
     Args:
         error: 异常对象
         context: 错误上下文信息
@@ -101,7 +114,7 @@ def collect_error(error, context=""):
                 "type": etype,
                 "message": emsg,
                 "context": ectx,
-                "traceback": traceback.format_exc()
+                "traceback": traceback.format_exc(),
             }
             stack["errors"].append(error_info)
 
@@ -109,14 +122,14 @@ def collect_error(error, context=""):
 def send_collected_errors(wechat_notifier, config=None):
     """
     发送收集到的错误信息
-    
+
     Args:
         wechat_notifier: 微信通知器实例
         config: 配置信息
     """
     if not wechat_notifier:
         return
-        
+
     thread_id = threading.get_ident()
     with _collection_lock:
         if thread_id in _error_collections and _error_collections[thread_id]:
@@ -129,9 +142,9 @@ def send_collected_errors(wechat_notifier, config=None):
                     error_message += f"   错误类型: {error['type']}\n"
                     error_message += f"   错误信息: {error['message']}\n"
                     error_message += f"   详细堆栈:\n{error['traceback']}\n\n"
-                
+
                 wechat_notifier.send_error_notification(error_message.strip(), config)
-            
+
             # 清除已发送的错误
             _error_collections[thread_id].pop()
 
@@ -153,7 +166,7 @@ def end_error_collection():
 def handle_error_and_notify(error, context, wechat_notifier, config=None, collect=True):
     """
     统一处理错误：收集错误、打印详细信息，并在需要时发送微信告警
-    
+
     Args:
         error: 异常对象
         context: 错误上下文信息
@@ -164,10 +177,10 @@ def handle_error_and_notify(error, context, wechat_notifier, config=None, collec
     # 收集错误
     if collect:
         collect_error(error, context)
-    
+
     # 仅打印详细的错误信息（不直接发送），避免重复
     print_detailed_error(error, context)
-    
+
     # 在存在收集上下文时，避免即时发送造成重复
     thread_id = threading.get_ident()
     has_collection = False
@@ -176,7 +189,7 @@ def handle_error_and_notify(error, context, wechat_notifier, config=None, collec
             has_collection = bool(_error_collections.get(thread_id))
     except Exception:
         has_collection = False
-    
+
     # 立即发送一次（仅当未聚合且当前没有收集上下文时）
     if not collect and not has_collection and wechat_notifier:
         send_wechat_alert(wechat_notifier, error, context, config)
@@ -189,12 +202,13 @@ from contextlib import contextmanager
 
 MASK_REPLACEMENT = "***"
 
+
 def mask(text, patterns, replacement=MASK_REPLACEMENT):
     """
     通用敏感信息掩码工具。
     Args:
         text: 原始文本
-        patterns: 
+        patterns:
           - 字符串或正则对象，或其列表/元组
           - 若为字符串，直接整体替换为 replacement
           - 若为正则，优先替换第1个捕获组；无捕获组则整体匹配替换
@@ -214,21 +228,28 @@ def mask(text, patterns, replacement=MASK_REPLACEMENT):
             else:
                 # 视为正则：若存在捕获组，仅替换第1个捕获组
                 regex = pat if hasattr(pat, "sub") else _re.compile(pat)
+
                 def _sub(m):
                     if m.groups():
                         g1 = m.group(1)
                         if g1 is None:
                             return replacement
                         start, end = m.start(1), m.end(1)
-                        seg = masked[m.start():m.end()]
+                        seg = masked[m.start() : m.end()]
                         # 将匹配片段中的第1组替换为 replacement
-                        return seg[:start - m.start()] + replacement + seg[end - m.start():]
+                        return (
+                            seg[: start - m.start()]
+                            + replacement
+                            + seg[end - m.start() :]
+                        )
                     return replacement
+
                 masked = regex.sub(_sub, masked)
         except Exception:
             # 掩码过程中失败不应影响主流程
             continue
     return masked
+
 
 def mask_cookies(text):
     """
@@ -245,10 +266,12 @@ def mask_cookies(text):
         regs.append(_re.compile(rf'({k}\s*=\s*")[^"]*(")'))
     masked = text
     for r in regs:
+
         def repl(m):
             if m.lastindex == 2:
-                return f'{m.group(1)}{MASK_REPLACEMENT}{m.group(2)}'
-            return f'{m.group(1)}{MASK_REPLACEMENT}'
+                return f"{m.group(1)}{MASK_REPLACEMENT}{m.group(2)}"
+            return f"{m.group(1)}{MASK_REPLACEMENT}"
+
         masked = r.sub(repl, masked)
     return masked
 
@@ -265,22 +288,30 @@ class ErrorCollector:
           # 若 with 块抛出未捕获异常，自动收集并原样抛出
       退出时自动 send_collected_errors 并 end_error_collection
     """
-    def __init__(self, context="", wechat_notifier=None, config=None, auto_send=True, suppress=False):
+
+    def __init__(
+        self,
+        context="",
+        wechat_notifier=None,
+        config=None,
+        auto_send=True,
+        suppress=False,
+    ):
         self.context = context
         self.wechat_notifier = wechat_notifier
         self.config = config
         self.auto_send = auto_send
         self.suppress = suppress  # True 则吞掉异常（默认不吞）
-    
+
     def __enter__(self):
         start_error_collection(self.context)
         return self
-    
+
     def capture(self, error, context=""):
         """手动采集错误"""
         collect_error(error, context)
         return False  # 方便在 except 中 `return ec.capture(e)` 模式使用
-    
+
     def __exit__(self, exc_type, exc, tb):
         # 未捕获异常也纳入收集
         if exc is not None:
@@ -300,7 +331,9 @@ class ErrorCollector:
 
 
 @contextmanager
-def error_collection(context="", wechat_notifier=None, config=None, auto_send=True, suppress=False):
+def error_collection(
+    context="", wechat_notifier=None, config=None, auto_send=True, suppress=False
+):
     """
     函数式便捷用法：
       with error_collection("ctx", notifier, config):
