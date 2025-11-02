@@ -266,34 +266,14 @@ def main():
         description="获取百度网盘 Cookies 并可选写入 GitHub Secrets"
     )
     ap.add_argument("--repo", help="目标仓库 owner/repo，提供则写入 Secrets")
-    ap.add_argument(
-        "--env", default=OUTPUT_ENV, help=f"env 文件路径（默认 {OUTPUT_ENV}）"
-    )
-    ap.add_argument(
-        "--from-env", action="store_true", help="仅从 env 文件写 Secrets，不启浏览器"
-    )
-    ap.add_argument("--min-only", action="store_true", help="仅写 BAIDU_COOKIES")
-    ap.add_argument("--full-only", action="store_true", help="仅写 BAIDU_COOKIES_FULL")
-    ap.add_argument(
-        "--headless",
-        action="store_true",
-        help="以无头模式启动浏览器（不推荐，扫码不便）",
-    )
     args = ap.parse_args()
 
-    cookies_min = ""
     cookies_full = ""
     cookies_min, cookies_full = do_browser_login_and_extract(headless=args.headless)
     if args.repo:
         ensure_gh()
         try:
-            if args.min_only:
-                set_secret(args.repo, "BAIDU_COOKIES", cookies_min)
-            elif args.full_only:
-                set_secret(args.repo, "BAIDU_COOKIES_FULL", cookies_full)
-            else:
-                set_secret(args.repo, "BAIDU_COOKIES", cookies_min)
-                set_secret(args.repo, "BAIDU_COOKIES_FULL", cookies_full)
+            set_secret(args.repo, "BAIDU_COOKIES_FULL", cookies_full)
             print("Secrets 写入完成。")
         except subprocess.CalledProcessError as e:
             print(f"写入 Secrets 失败：{e}")
