@@ -28,6 +28,7 @@
 """
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -67,6 +68,28 @@ PREFERRED_ORDER = [
     "BDORZ",
     "BDRCVFR",
 ]
+
+
+def update_secret_shareurl_from_config(repo: str, name: str):
+    jsonstr = {}
+    with open("config.json", "r") as f:
+        jsonstr = json.load(f)
+    urls = jsonstr["share_urls"]
+    share_urls = "\n".join([s for s in urls if isinstance(s, str) and s.strip()])
+    # print(share_urls)
+    # with open("shareurls.txt",'w') as f:
+    #     f.write(share_urls)
+    ensure_gh()
+    set_secret(repo, name, share_urls)
+
+
+def update_secret_cookie_from_config(repo: str, name: str):
+    jsonstr = {}
+    with open("config.json", "r") as f:
+        jsonstr = json.load(f)
+    cookies: str = jsonstr["cookies"]
+    ensure_gh()
+    set_secret(repo, name, cookies)
 
 
 def find_cookie(
@@ -260,27 +283,7 @@ def main():
 
     cookies_min = ""
     cookies_full = ""
-
-    if args.from_env:
-        vals = read_env_values(Path(args.env))
-        cookies_min = vals.get("BAIDU_COOKIES", "")
-        cookies_full = vals.get("BAIDU_COOKIES_FULL", "")
-    else:
-        cookies_min, cookies_full = do_browser_login_and_extract(headless=args.headless)
-        # 输出到 env 文件
-        lines = []
-        if cookies_min:
-            lines.append(f'BAIDU_COOKIES="{cookies_min}"')
-        else:
-            lines.append("# 未捕获到 BDUSS/STOKEN，请确认已完成登录后重试")
-            lines.append('BAIDU_COOKIES=""')
-        lines.append(f'BAIDU_COOKIES_FULL="{cookies_full}"')
-        Path(args.env).write_text("\n".join(lines) + "\n", encoding="utf-8")
-        print(f"\n已写入 {args.env}")
-        print(
-            "说明：\n  - BAIDU_COOKIES       → 仅 BDUSS 与 STOKEN（最小必需）\n  - BAIDU_COOKIES_FULL  → 合并后的全部 Cookie（优先 pan.baidu.com）"
-        )
-
+    cookies_min, cookies_full = do_browser_login_and_extract(headless=args.headless)
     if args.repo:
         ensure_gh()
         try:
@@ -298,4 +301,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    # update_secret_from_config()
+    update_secret_shareurl_from_config(
+        "Jack-261108/transfershare",
+        "SHARE_URLS",
+    )
