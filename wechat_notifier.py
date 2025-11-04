@@ -7,6 +7,7 @@ import requests
 from datetime import datetime
 import time
 import traceback
+import os
 
 # 常量定义
 MAX_RETRIES = 2
@@ -122,6 +123,44 @@ class WeChatNotifier:
     def _get_save_dir(self, config: Optional[Dict[str, Any]]) -> str:
         """安全获取保存目录"""
         return config.get("save_dir", DEFAULT_SAVE_DIR) if config else DEFAULT_SAVE_DIR
+
+    def _get_github_actions_info(self) -> Optional[Dict[str, str]]:
+        """
+        获取 GitHub Actions 运行详情
+        
+        Returns:
+            dict: GitHub Actions 信息，如果不是 GitHub Actions 环境则返回 None
+        """
+        if os.getenv("GITHUB_ACTIONS") != "true":
+            return None
+        
+        try:
+            repository = os.getenv("GITHUB_REPOSITORY", "")
+            run_id = os.getenv("GITHUB_RUN_ID", "")
+            run_number = os.getenv("GITHUB_RUN_NUMBER", "")
+            workflow = os.getenv("GITHUB_WORKFLOW", "")
+            server_url = os.getenv("GITHUB_SERVER_URL", "https://github.com")
+            ref = os.getenv("GITHUB_REF", "")
+            sha = os.getenv("GITHUB_SHA", "")
+            
+            # 构建运行详情链接
+            run_url = f"{server_url}/{repository}/actions/runs/{run_id}" if repository and run_id else None
+            
+            # 构建提交链接
+            commit_url = f"{server_url}/{repository}/commit/{sha}" if repository and sha else None
+            
+            return {
+                "repository": repository,
+                "run_id": run_id,
+                "run_number": run_number,
+                "workflow": workflow,
+                "ref": ref,
+                "sha": sha[:7] if sha else "",  # 只显示前7位
+                "run_url": run_url,
+                "commit_url": commit_url,
+            }
+        except Exception:
+            return None
 
     def _format_files_info(self, transferred_files: List[str]) -> str:
         """
@@ -278,11 +317,38 @@ class WeChatNotifier:
         # 掩码敏感信息
         masked_error = self._mask_sensitive(error_msg) or error_msg
 
+        # 获取 GitHub Actions 运行详情
+        github_info = self._get_github_actions_info()
+        
+        # 构建消息
         message = f"""## ⚠️ 百度网盘转存异常
 **时间**: {current_time}
 **状态**: ❌ 执行异常
 **任务类型**: 自动转存任务
-**保存目录**: {save_dir}
+**保存目录**: {save_dir}"""
+
+        # 添加 GitHub Actions 运行详情
+        if github_info:
+            # 格式化分支/标签名称
+            ref = github_info.get('ref', '')
+            if ref:
+                ref = ref.replace('refs/heads/', '').replace('refs/tags/', '').replace('refs/pull/', 'PR-')
+            
+            message += f"""
+**GitHub Actions 详情**:
+- 仓库: `{github_info.get('repository', 'N/A')}`
+- 工作流: `{github_info.get('workflow', 'N/A')}`
+- 运行编号: `#{github_info.get('run_number', 'N/A')}`
+- 分支/标签: `{ref or 'N/A'}`
+- 提交: `{github_info.get('sha', 'N/A')}`"""
+            
+            if github_info.get('run_url'):
+                message += f"\n- 🔗 [查看运行详情]({github_info['run_url']})"
+            
+            if github_info.get('commit_url'):
+                message += f"\n- 🔗 [查看提交详情]({github_info['commit_url']})"
+
+        message += f"""
 **错误信息**: {masked_error}
 
 请检查配置或联系管理员处理。"""

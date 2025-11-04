@@ -114,7 +114,7 @@ def send_wechat_alert(
     if wechat_notifier:
         detailed_error = _format_error_base(error, context)
         masked_error = _mask_sensitive(detailed_error)
-        # 统一掩码
+        # 统一掩码，send_error_notification 会自动包含 GitHub Actions 详情
         wechat_notifier.send_error_notification(
             masked_error if masked_error is not None else detailed_error, config
         )
@@ -196,6 +196,7 @@ def send_collected_errors(
 ) -> None:
     """
     发送收集到的错误信息（线程安全）
+    注意：GitHub Actions 详情会自动包含在错误通知中
 
     Args:
         wechat_notifier: 微信通知器实例
@@ -233,6 +234,7 @@ def send_collected_errors(
         # 清除已发送的错误（不在此处 pop，由 end_error_collection 统一处理）
 
     # 在锁外调用外部函数，避免死锁
+    # send_error_notification 会自动包含 GitHub Actions 详情
     if error_message:
         masked_message = _mask_sensitive(error_message.strip())
         wechat_notifier.send_error_notification(
