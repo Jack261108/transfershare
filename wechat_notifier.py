@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import json
 from zoneinfo import ZoneInfo
+from typing import Optional, Dict, Any, List
 import requests
 from datetime import datetime
 import time
 import traceback
 
+# 常量定义
+MAX_RETRIES = 2
+RETRY_DELAY = 5  # 重试间隔（秒）
+REQUEST_TIMEOUT = 60  # 请求超时（秒）
+MAX_FILES_TO_SHOW = 5  # 消息中显示的最大文件数量
+TIMEZONE = ZoneInfo("Asia/Shanghai")  # 时区
+DEFAULT_SAVE_DIR = "默认"  # 默认保存目录
+
 
 class WeChatNotifier:
-    def __init__(self, webhook_url):
+    def __init__(self, webhook_url: str):
         """
         初始化企业微信通知器
         Args:
@@ -18,30 +26,63 @@ class WeChatNotifier:
         """
         self.webhook_url = webhook_url
 
-    def send_message(self, message, msg_type="text"):
+    def _build_message_data(self, message: str, msg_type: str) -> Dict[str, Any]:
         """
-        发送消息到企业微信，失败时重试两次
+        构建消息数据
+        Args:
+            message: 消息内容
+            msg_type: 消息类型
+        Returns:
+            消息数据字典
+        """
+        if msg_type == "text":
+            return {"msgtype": "text", "text": {"content": message}}
+        elif msg_type == "markdown":
+            return {"msgtype": "markdown", "markdown": {"content": message}}
+        else:
+            raise ValueError(f"不支持的消息类型: {msg_type}")
+
+    def _handle_send_error(self, error: Exception, attempt: int) -> None:
+        """
+        处理发送错误
+        Args:
+            error: 异常对象
+            attempt: 当前尝试次数
+        """
+        print(f"发送企业微信通知时出错: {str(error)}")
+        print("错误堆栈信息:")
+        traceback.print_exc()
+
+        # 使用现有的错误处理工具（在函数内部导入以避免循环导入）
+        try:
+            from utils import handle_error_and_notify
+
+            handle_error_and_notify(
+                error,
+                f"发送企业微信通知时出错 (尝试 {attempt + 1}/{MAX_RETRIES + 1})",
+                None,
+            )
+        except ImportError:
+            # 如果无法导入工具函数，至少打印错误信息
+            pass
+
+    def send_message(self, message: str, msg_type: str = "text") -> bool:
+        """
+        发送消息到企业微信，失败时重试
         Args:
             message: 消息内容
             msg_type: 消息类型，支持 "text", "markdown"
+        Returns:
+            是否发送成功
         """
-        max_retries = 2
-        retry_delay = 5  # 重试间隔秒数
-
-        for attempt in range(max_retries + 1):
+        for attempt in range(MAX_RETRIES + 1):
             try:
-                if msg_type == "text":
-                    data = {"msgtype": "text", "text": {"content": message}}
-                elif msg_type == "markdown":
-                    data = {"msgtype": "markdown", "markdown": {"content": message}}
-                else:
-                    raise ValueError(f"不支持的消息类型: {msg_type}")
-
+                data = self._build_message_data(message, msg_type)
                 response = requests.post(
                     self.webhook_url,
                     json=data,
                     headers={"Content-Type": "application/json"},
-                    timeout=60,
+                    timeout=REQUEST_TIMEOUT,
                 )
 
                 if response.status_code == 200:
@@ -52,69 +93,99 @@ class WeChatNotifier:
                     else:
                         error_msg = result.get("errmsg", "未知错误")
                         print(f"企业微信通知发送失败: {error_msg}")
-                        if attempt < max_retries:
-                            print(f"第 {attempt + 1} 次重试...")
-                            time.sleep(retry_delay)
-                            continue
-                        else:
-                            return False
                 else:
                     print(f"企业微信通知发送失败: HTTP {response.status_code}")
-                    if attempt < max_retries:
-                        print(f"第 {attempt + 1} 次重试...")
-                        time.sleep(retry_delay)
-                        continue
-                    else:
-                        return False
+
+                # 判断是否需要重试
+                if attempt < MAX_RETRIES:
+                    print(f"第 {attempt + 1} 次重试...")
+                    time.sleep(RETRY_DELAY)
+                    continue
+                else:
+                    return False
 
             except Exception as e:
-                # 打印完整的错误堆栈信息
-                print(f"发送企业微信通知时出错: {str(e)}")
-                print("错误堆栈信息:")
-                traceback.print_exc()
-
-                # 使用现有的错误处理工具（在函数内部导入以避免循环导入）
-                try:
-                    from utils import handle_error_and_notify
-
-                    handle_error_and_notify(
-                        e,
-                        f"发送企业微信通知时出错 (尝试 {attempt + 1}/{max_retries + 1})",
-                        None,
-                    )
-                except ImportError:
-                    # 如果无法导入工具函数，至少打印错误信息
-                    print(f"无法导入错误处理工具: {str(e)}")
-
-                if attempt < max_retries:
+                self._handle_send_error(e, attempt)
+                if attempt < MAX_RETRIES:
                     print(f"第 {attempt + 1} 次重试...")
-                    time.sleep(retry_delay)
+                    time.sleep(RETRY_DELAY)
                     continue
                 else:
                     return False
 
         return False
 
-    def send_transfer_result(self, result, config):
+    def _get_current_time(self) -> str:
+        """获取当前时间字符串"""
+        return datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+
+    def _get_save_dir(self, config: Optional[Dict[str, Any]]) -> str:
+        """安全获取保存目录"""
+        return config.get("save_dir", DEFAULT_SAVE_DIR) if config else DEFAULT_SAVE_DIR
+
+    def _format_files_info(self, transferred_files: List[str]) -> str:
+        """
+        格式化文件信息
+        Args:
+            transferred_files: 转存的文件列表
+        Returns:
+            格式化的文件信息字符串
+        """
+        if not transferred_files:
+            return ""
+
+        shown_files = transferred_files[:MAX_FILES_TO_SHOW]
+        files_info = "\n**转存文件**:\n" + "\n".join(
+            [f"• {file}" for file in shown_files]
+        )
+
+        if len(transferred_files) > MAX_FILES_TO_SHOW:
+            files_info += (
+                f"\n• ... 还有 {len(transferred_files) - MAX_FILES_TO_SHOW} 个文件"
+            )
+
+        return files_info
+
+    def _collect_transferred_files(self, result: Dict[str, Any]) -> List[str]:
+        """
+        从批量结果中收集所有成功转存的文件
+        Args:
+            result: 转存结果字典
+        Returns:
+            所有转存的文件列表
+        """
+        transferred_files = result.get("transferred_files", [])
+
+        # 处理批量转存的文件列表
+        if "results" in result:
+            all_transferred_files = []
+            for res in result["results"]:
+                if res.get("success") and not res.get("skipped"):
+                    files = res.get("transferred_files", [])
+                    all_transferred_files.extend(files)
+            transferred_files = all_transferred_files
+
+        return transferred_files
+
+    def send_transfer_result(
+        self, result: Dict[str, Any], config: Optional[Dict[str, Any]]
+    ) -> bool:
         """
         发送转存结果通知
         Args:
             result: 转存结果字典
             config: 配置信息
+        Returns:
+            是否发送成功
         """
-        current_time = datetime.now(ZoneInfo("Asia/Shanghai")).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
-
-        # 安全获取配置信息
-        save_dir = config.get("save_dir", "默认") if config else "默认"
+        current_time = self._get_current_time()
+        save_dir = self._get_save_dir(config)
 
         # 计算总链接数和任务描述
         total_count = result.get("total_count", 1)
-        if total_count > 1:
-            task_desc = f"批量转存任务 ({total_count}个链接)"
-        else:
-            task_desc = "转存任务"
+        task_desc = (
+            f"批量转存任务 ({total_count}个链接)" if total_count > 1 else "转存任务"
+        )
 
         if result.get("success"):
             if result.get("skipped"):
@@ -130,30 +201,9 @@ class WeChatNotifier:
 **结果**: {result_msg}"""
             else:
                 # 转存成功
-                transferred_files = result.get("transferred_files", [])
+                transferred_files = self._collect_transferred_files(result)
                 result_msg = result.get("message") or result.get("summary", "转存成功")
-
-                # 处理批量转存的文件列表
-                if "results" in result:
-                    # 从批量结果中收集所有成功转存的文件
-                    all_transferred_files = []
-                    for res in result["results"]:
-                        if res.get("success") and not res.get("skipped"):
-                            files = res.get("transferred_files", [])
-                            all_transferred_files.extend(files)
-                    transferred_files = all_transferred_files
-
-                files_info = ""
-                if transferred_files:
-                    # 显示前5个文件
-                    shown_files = transferred_files[:5]
-                    files_info = "\n**转存文件**:\n" + "\n".join(
-                        [f"• {file}" for file in shown_files]
-                    )
-                    if len(transferred_files) > 5:
-                        files_info += (
-                            f"\n• ... 还有 {len(transferred_files) - 5} 个文件"
-                        )
+                files_info = self._format_files_info(transferred_files)
 
                 message = f"""## 🎉 百度网盘转存报告
 **时间**: {current_time}
@@ -175,64 +225,77 @@ class WeChatNotifier:
 
         return self.send_message(message, "markdown")
 
-    def _mask_sensitive(self, text: str) -> str:
-        try:
-            from utils import mask_cookies as _mask_cookies
-        except Exception:
-
-            def _mask_cookies(t):
-                return t
-
-        import re as _re
-
+    def _mask_sensitive(self, text: Optional[str]) -> Optional[str]:
+        """
+        掩码敏感信息
+        Args:
+            text: 原始文本
+        Returns:
+            掩码后的文本
+        """
         if text is None:
             return text
-        masked = _mask_cookies(text)
-        masked = _re.sub(
-            r"(\bpwd=)([A-Za-z0-9]{4})", r"\1***", masked, flags=_re.IGNORECASE
+
+        import re
+
+        try:
+            from utils import mask_cookies
+        except Exception:
+            # 如果无法导入，使用简单的掩码
+            def mask_cookies(t: str) -> str:
+                return t
+
+        masked = mask_cookies(text)
+        masked = re.sub(
+            r"(\bpwd=)([A-Za-z0-9]{4})", r"\1***", masked, flags=re.IGNORECASE
         )
-        masked = _re.sub(
-            r"(\buk\s*[:=]\s*)(\d+)", r"\1***", masked, flags=_re.IGNORECASE
+        masked = re.sub(r"(\buk\s*[:=]\s*)(\d+)", r"\1***", masked, flags=re.IGNORECASE)
+        masked = re.sub(
+            r"(\bshare_id\s*[:=]\s*)(\d+)", r"\1***", masked, flags=re.IGNORECASE
         )
-        masked = _re.sub(
-            r"(\bshare_id\s*[:=]\s*)(\d+)", r"\1***", masked, flags=_re.IGNORECASE
-        )
-        masked = _re.sub(
+        masked = re.sub(
             r"(\bbdstoken\s*[:=]\s*)([A-Za-z0-9_-]+)",
             r"\1***",
             masked,
-            flags=_re.IGNORECASE,
+            flags=re.IGNORECASE,
         )
         return masked
 
-    def send_error_notification(self, error_msg, config):
+    def send_error_notification(
+        self, error_msg: str, config: Optional[Dict[str, Any]]
+    ) -> bool:
         """
         发送错误通知
         Args:
             error_msg: 错误信息
             config: 配置信息
+        Returns:
+            是否发送成功
         """
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        current_time = self._get_current_time()
+        save_dir = self._get_save_dir(config)
 
-        # 安全获取配置信息
-        save_dir = config.get("save_dir", "默认") if config else "默认"
+        # 掩码敏感信息
+        masked_error = self._mask_sensitive(error_msg) or error_msg
 
         message = f"""## ⚠️ 百度网盘转存异常
 **时间**: {current_time}
 **状态**: ❌ 执行异常
 **任务类型**: 自动转存任务
 **保存目录**: {save_dir}
-**错误信息**: {error_msg}
+**错误信息**: {masked_error}
 
 请检查配置或联系管理员处理。"""
 
         return self.send_message(message, "markdown")
 
-    def send_test_message(self):
+    def send_test_message(self) -> bool:
         """
         发送测试消息
+        Returns:
+            是否发送成功
         """
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        current_time = self._get_current_time()
         message = f"""## 🔔 测试通知
 **时间**: {current_time}
 **状态**: ✅ 企业微信通知测试成功
