@@ -243,7 +243,8 @@ def main():
             sys.exit(1)
 
     except Exception as e:
-        handle_error_and_notify(e, "主任务执行失败", notifier, config, collect=True)
+        # 不在 ErrorCollector 作用域内，直接发送错误通知
+        handle_error_and_notify(e, "主任务执行失败", notifier, config, collect=False)
         sys.exit(1)
 
     finally:
