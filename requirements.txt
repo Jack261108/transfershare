@@ -1,5 +1,4 @@
 baidupcs-py==0.7.6
 pip-chill==1.0.3
 requests==2.32.3
-tzdata>=2024.1
 backports.zoneinfo>=0.2.1; python_version<'3.9'
