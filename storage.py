@@ -19,6 +19,16 @@ from utils import (
     ErrorCollector,
 )
 
+try:
+    from logger import get_logger
+except ImportError:
+    # 日志模块不可用时，使用标准日志
+    import logging
+
+    def get_logger(name="transfershare"):
+        return logging.getLogger(name)
+
+
 # 常量定义
 DEFAULT_REQUEST_TIMEOUT = 60
 DEFAULT_RETRY_DELAY = 2
@@ -58,27 +68,29 @@ class BaiduStorage:
         """
         为客户端请求方法注入超时逻辑
         """
+        logger = get_logger()
         pcs_candidate = self._get_pcs_candidate()
 
         if pcs_candidate:
             if not getattr(pcs_candidate, "_timeout_patched", False):
                 # 执行注入操作
                 self._patch_request_methods(pcs_candidate)
-                print("成功注入超时逻辑到 BaiduPCSApi 请求方法。")
+                logger.debug("成功注入超时逻辑到 BaiduPCSApi 请求方法。")
             else:
-                print("超时逻辑已存在，无需重复注入。")
+                logger.debug("超时逻辑已存在，无需重复注入。")
         else:
-            print("未找到可用的 pcs 属性，无法注入超时逻辑。")
+            logger.warning("未找到可用的 pcs 属性，无法注入超时逻辑。")
 
     def _get_pcs_candidate(self):
         """
         获取可用的 BaiduPCS 实例属性
         """
+        logger = get_logger()
         for attr in ("_pcs", "pcs", "baidupcs", "_baidupcs"):
             if hasattr(self.client, attr):
-                print(f"找到 pcs 属性：{attr}")
+                logger.debug(f"找到 pcs 属性：{attr}")
                 return getattr(self.client, attr)
-        print("未找到任何有效的 pcs 属性。")
+        logger.debug("未找到任何有效的 pcs 属性。")
         return None
 
     def _patch_request_methods(self, pcs_candidate):
@@ -100,6 +112,7 @@ class BaiduStorage:
             return _wrapped
 
         # 注入超时逻辑
+        logger = get_logger()
         request_methods = [
             "_requestf",
             "_request_get",
@@ -109,7 +122,7 @@ class BaiduStorage:
         ]
         for method_name in request_methods:
             if hasattr(pcs_candidate, method_name):
-                print(f"为方法 {method_name} 注入超时逻辑。")
+                logger.debug(f"为方法 {method_name} 注入超时逻辑。")
                 setattr(
                     pcs_candidate,
                     method_name,
@@ -118,7 +131,8 @@ class BaiduStorage:
 
         # 标记已注入超时设置
         setattr(pcs_candidate, "_timeout_patched", True)
-        print("成功注入超时设置并标记 '_timeout_patched'。")
+        logger = get_logger()
+        logger.debug("成功注入超时设置并标记 '_timeout_patched'。")
 
     def _retry_on_network_error(self, func, *args, **kwargs):
         """网络请求重试装饰器"""
@@ -136,7 +150,7 @@ class BaiduStorage:
                         delay = self.base_retry_delay * attempt
                     # 最大等待时间以避免过长阻塞
                     delay = min(delay, MAX_RETRY_DELAY)
-                    print(f"第{attempt + 1}次重试，等待{delay:.1f}秒...")
+                    logger.debug(f"第{attempt + 1}次重试，等待{delay:.1f}秒...")
                     time.sleep(delay)
 
                 # 执行请求
@@ -158,11 +172,14 @@ class BaiduStorage:
                         "ssl",
                     ]
                 ):
+                    logger = get_logger()
                     if attempt < self.max_retries - 1:
-                        print(f"网络请求失败（第{attempt + 1}次尝试）: {error_str}")
+                        logger.debug(
+                            f"网络请求失败（第{attempt + 1}次尝试）: {error_str}"
+                        )
                         continue
                     else:
-                        print(f"网络请求最终失败，已重试{self.max_retries}次")
+                        logger.warning(f"网络请求最终失败，已重试{self.max_retries}次")
                         # 注意：这里不收集错误，因为调用者应该在 ErrorCollector 中处理
                         break
                 elif "error_code: 4" in error_str:
@@ -179,60 +196,37 @@ class BaiduStorage:
     def _init_client(self, cookies):
         """初始化客户端"""
         with self._client_lock:
-            try:
-                cookies_dict = self._parse_cookies(cookies)
-                if not self._validate_cookies(cookies_dict):
-                    error_msg = "Cookies验证失败"
-                    # 统一错误处理
-                    handle_error_and_notify(
-                        ValueError(error_msg),
-                        "百度网盘客户端初始化失败",
-                        self.wechat_notifier,
-                        None,
-                        collect=False,
+            cookies_dict = self._parse_cookies(cookies)
+            if not self._validate_cookies(cookies_dict):
+                raise ValueError("Cookies 验证失败，缺少 BDUSS 或 STOKEN")
+
+            # 使用重试机制初始化客户端
+            for retry in range(3):
+                try:
+                    self.client = BaiduPCSApi(cookies=cookies_dict)
+                    # 获取超时时间，缺省为 60 秒
+                    self.default_timeout = int(
+                        os.getenv("BAIDU_REQUEST_TIMEOUT", str(DEFAULT_REQUEST_TIMEOUT))
                     )
-                    return False
+                    self._inject_timeout()
+                    # 验证客户端
+                    quota = self.client.quota()
+                    total_gb = round(quota[0] / (1024**3), 2)
+                    used_gb = round(quota[1] / (1024**3), 2)
+                    return True
+                except Exception as e:
+                    if retry < 2:
+                        time.sleep(3)
+                    else:
+                        raise ValueError(f"百度网盘客户端初始化失败: {str(e)}") from e
 
-                # 使用重试机制初始化客户端
-                for retry in range(3):
-                    try:
-                        self.client = BaiduPCSApi(cookies=cookies_dict)
-                        # 获取超时时间，缺省为 60 秒
-                        self.default_timeout = int(
-                            os.getenv(
-                                "BAIDU_REQUEST_TIMEOUT", str(DEFAULT_REQUEST_TIMEOUT)
-                            )
-                        )
-                        self._inject_timeout()
-                        # 验证客户端
-                        quota = self.client.quota()
-                        total_gb = round(quota[0] / (1024**3), 2)
-                        used_gb = round(quota[1] / (1024**3), 2)
-                        return True
-                    except Exception as e:
-                        if retry < 2:
-                            time.sleep(3)
-                        else:
-                            # 使用统一的错误处理函数
-                            handle_error_and_notify(
-                                e,
-                                "百度网盘客户端初始化最终失败",
-                                self.wechat_notifier,
-                                None,
-                                collect=False,
-                            )
-                            return False
+    def set_notifier(self, notifier):
+        """设置微信通知器实例
 
-            except Exception as e:
-                # 使用统一的错误处理函数
-                handle_error_and_notify(
-                    e,
-                    "百度网盘客户端初始化异常",
-                    self.wechat_notifier,
-                    None,
-                    collect=False,
-                )
-                return False
+        Args:
+            notifier: WeChatNotifier 实例或 None
+        """
+        self.wechat_notifier = notifier
 
     def _validate_cookies(self, cookies):
         """验证cookies是否有效
@@ -667,13 +661,49 @@ class BaiduStorage:
         except Exception as e:
             return None
 
-    def _list_shared_dir_files(self, path, uk, share_id, bdstoken):
+    def _should_include_folder(self, folder_name, folder_filter=None):
+        """
+        判断是否应该包含该文件夹
+        Args:
+            folder_name: 文件夹名称
+            folder_filter: 文件夹过滤规则，支持：
+                - 正则表达式字符串：匹配文件夹名称
+                - 列表：包含多个正则表达式，任一匹配即可
+                - None：不过滤，包含所有文件夹
+        Returns:
+            bool: True 表示应该包含，False 表示应该跳过
+        """
+        if not folder_filter:
+            return True
+
+        try:
+            # 如果 folder_filter 是列表，任一匹配即可
+            if isinstance(folder_filter, list):
+                for pattern in folder_filter:
+                    if re.search(pattern, folder_name):
+                        return True
+                return False
+
+            # 如果是字符串，作为正则表达式匹配
+            if isinstance(folder_filter, str):
+                return bool(re.search(folder_filter, folder_name))
+
+            return True
+        except re.error:
+            # 正则表达式错误时，不过滤（包含所有文件夹）
+            return True
+        except Exception:
+            # 其他错误时，不过滤
+            return True
+
+    def _list_shared_dir_files(self, path, uk, share_id, bdstoken, folder_filter=None):
         """递归获取共享目录下的所有文件
         Args:
             path: 目录路径
             uk: 用户uk
             share_id: 分享ID
             bdstoken: token
+            folder_filter: 文件夹过滤规则（可选）
         Returns:
             list: 文件列表
         """
@@ -728,13 +758,20 @@ class BaiduStorage:
                 else:
                     sub_file_dict = sub_file if isinstance(sub_file, dict) else {}
 
-                # 如果是目录，递归获取
+                # 如果是目录，检查是否需要过滤
                 is_dir = getattr(sub_file, "is_dir", False)
                 if is_dir:
-                    sub_dir_files = self._list_shared_dir_files(
-                        sub_file, uk, share_id, bdstoken
-                    )
-                    files.extend(sub_dir_files)
+                    # 获取文件夹名称
+                    folder_name = os.path.basename(getattr(sub_file, "path", ""))
+
+                    # 检查是否应该包含该文件夹
+                    if self._should_include_folder(folder_name, folder_filter):
+                        # 递归获取文件夹内容
+                        sub_dir_files = self._list_shared_dir_files(
+                            sub_file, uk, share_id, bdstoken, folder_filter
+                        )
+                        files.extend(sub_dir_files)
+                    # 如果文件夹被过滤，跳过该文件夹及其所有内容
                 else:
                     # 如果是文件，添加到列表
                     file_info = self._extract_file_info(sub_file_dict)
@@ -763,8 +800,9 @@ class BaiduStorage:
                     'share_url': str,      # 分享链接
                     'pwd': str,            # 提取码（可选）
                     'save_dir': str,       # 保存目录（可选）
-                    'regex_pattern': str,  # 正则表达式（可选）
-                    'regex_replace': str   # 正则替换（可选）
+                    'regex_pattern': str,  # 正则表达式（可选，用于文件过滤和重命名）
+                    'regex_replace': str,  # 正则替换（可选）
+                    'folder_filter': str or list  # 文件夹过滤规则（可选，正则表达式或列表）
                 }
             progress_callback: 进度回调函数
         Returns:
@@ -838,6 +876,7 @@ class BaiduStorage:
                     save_dir = config.get("save_dir")
                     regex_pattern = config.get("regex_pattern")
                     regex_replace = config.get("regex_replace")
+                    folder_filter = config.get("folder_filter")
 
                     if progress_callback:
                         progress_callback(
@@ -853,6 +892,7 @@ class BaiduStorage:
                         progress_callback=progress_callback,
                         regex_pattern=regex_pattern,
                         regex_replace=regex_replace,
+                        folder_filter=folder_filter,
                     )
 
                     # 记录结果
@@ -1187,6 +1227,7 @@ class BaiduStorage:
         progress_callback=None,
         regex_pattern=None,
         regex_replace=None,
+        folder_filter=None,
     ):
         """转存分享文件
         Args:
@@ -1196,6 +1237,10 @@ class BaiduStorage:
             progress_callback: 进度回调函数
             regex_pattern: 正则表达式模式（用于文件过滤和重命名）
             regex_replace: 正则替换字符串
+            folder_filter: 文件夹过滤规则（可选）
+                - 正则表达式字符串：只转存匹配的文件夹
+                - 列表：包含多个正则表达式，任一匹配即可
+                - None：不过滤，转存所有文件夹
         Returns:
             dict: {
                 'success': bool,  # 是否成功
@@ -1259,9 +1304,20 @@ class BaiduStorage:
                 shared_files_info = []
                 for path in shared_paths:
                     if path.is_dir:
-                        # 获取文件夹内容
+                        # 检查顶级文件夹是否应该包含
+                        folder_name = os.path.basename(path.path)
+                        if folder_filter and not self._should_include_folder(
+                            folder_name, folder_filter
+                        ):
+                            if progress_callback:
+                                progress_callback(
+                                    "info", f"文件夹被过滤，跳过: {folder_name}"
+                                )
+                            continue
+
+                        # 获取文件夹内容（传递 folder_filter 以递归过滤）
                         folder_files = self._list_shared_dir_files(
-                            path, uk, share_id, bdstoken
+                            path, uk, share_id, bdstoken, folder_filter
                         )
                         for file_info in folder_files:
                             shared_files_info.append(file_info)
@@ -1305,12 +1361,13 @@ class BaiduStorage:
                 name_counts = Counter(file_names)
                 dup_names = [name for name, count in name_counts.items() if count > 1]
 
+                logger = get_logger()
                 if dup_names:
-                    print(f"⚠️ 检测到 {len(dup_names)} 个重复文件名：")
+                    logger.info(f"⚠️ 检测到 {len(dup_names)} 个重复文件名：")
                     for name in dup_names:
-                        print(f"  - {name} 出现 {name_counts[name]} 次")
+                        logger.info(f"  - {name} 出现 {name_counts[name]} 次")
                 else:
-                    print("✅ 没有发现重复文件名。")
+                    logger.info("✅ 没有发现重复文件名。")
 
                 local_files_dict = {
                     self._normalize_path(f["file_name"], file_only=True): f["md5"]

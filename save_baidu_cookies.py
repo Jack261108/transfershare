@@ -36,6 +36,19 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Optional, Tuple, Dict
 
+try:
+    from logger import get_logger, setup_logging
+except ImportError:
+    # 日志模块不可用时，提供简单的 fallback
+    def get_logger():
+        import logging
+
+        return logging.getLogger(__name__)
+
+    def setup_logging(*args, **kwargs):
+        pass
+
+
 if TYPE_CHECKING:
     try:
         from playwright.sync_api import sync_playwright, BrowserContext  # type: ignore  # noqa: F401
@@ -465,4 +478,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    update_secret_shareurl_from_config(
+        repo="Jack-261108/transfershare", name="SHARE_URLS"
+    )

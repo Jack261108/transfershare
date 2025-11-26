@@ -37,7 +37,8 @@
 - [🔧 环境准备](#-环境准备)
 - [⚙️ 详细配置](#️-详细配置)
 - [▶️ 使用方法](#️-使用方法)
-- [🔗 链接格式](#-分享链接格式说明)
+- [🔗 分享链接格式](#-分享链接格式说明)
+- [🎯 高级功能](#-高级功能)
 - [🛠 故障排除](#-故障排除)
 - [⚠️ 注意事项](#️-注意事项)
 - [📄 许可证](#-许可证)
@@ -144,7 +145,7 @@ python save_baidu_cookies.py --headless
   - `save_dir` 或 `SAVE_DIR`：保存目录，默认 `/AutoTransfer`
   - `wechat_webhook` 或 `WECHAT_WEBHOOK`：企业微信机器人 Webhook，可选
 
-示例：
+**示例 1：简单配置**
 ```json
 {
   "cookies": "BDUSS=xxx; STOKEN=xxx",
@@ -157,9 +158,84 @@ python save_baidu_cookies.py --headless
 }
 ```
 
-说明：
-- `share_urls` 为字符串时，支持用逗号或换行分隔，程序会自动归一化为按行处理。
-- 保存目录不存在时会自动创建。
+**示例 2：简化配置（全局高级参数）**
+```json
+{
+  "cookies": "BDUSS=xxx; STOKEN=xxx",
+  "share_urls": [
+    "https://pan.baidu.com/s/xxxxxx?pwd=abcd /资料",
+    "https://pan.baidu.com/s/yyyyyy?pwd=efgh /视频"
+  ],
+  "save_dir": "/AutoTransfer",
+  "folder_filter": "2024|2025",
+  "regex_pattern": ".*\\.pdf$",
+  "wechat_webhook": ""
+}
+```
+- 所有链接都会应用 `folder_filter` 和 `regex_pattern`（只转存 2024 或 2025 文件夹中的 PDF 文件）
+
+**示例 3：高级配置（每个链接单独配置）**
+```json
+{
+  "cookies": "BDUSS=xxx; STOKEN=xxx",
+  "share_urls": [
+    {
+      "share_url": "https://pan.baidu.com/s/xxxxxx?pwd=abcd",
+      "save_dir": "/资料",
+      "folder_filter": "2024|2025",
+      "regex_pattern": ".*\\.pdf$"
+    },
+    {
+      "share_url": "https://pan.baidu.com/s/yyyyyy?pwd=efgh",
+      "save_dir": "/视频",
+      "folder_filter": ["^课程", ".*资料.*"],
+      "regex_pattern": ".*课程(\\d+).*\\.mp4$",
+      "regex_replace": "第$1课.mp4"
+    }
+  ],
+  "save_dir": "/AutoTransfer",
+  "wechat_webhook": ""
+}
+```
+
+**示例 4：混合配置（全局参数 + 局部覆盖）**
+```json
+{
+  "cookies": "BDUSS=xxx; STOKEN=xxx",
+  "share_urls": [
+    {
+      "share_url": "https://pan.baidu.com/s/xxxxxx?pwd=abcd",
+      "save_dir": "/资料"
+      // 使用全局 folder_filter: "2024|2025"
+    },
+    {
+      "share_url": "https://pan.baidu.com/s/yyyyyy?pwd=efgh",
+      "save_dir": "/视频",
+      "folder_filter": "2023"  // 覆盖全局设置，只转存 2023 文件夹
+    }
+  ],
+  "save_dir": "/AutoTransfer",
+  "folder_filter": "2024|2025",  // 全局设置
+  "wechat_webhook": ""
+}
+```
+
+**配置说明：**
+- `share_urls` 为字符串时，支持用逗号或换行分隔，程序会自动归一化为按行处理
+- `share_urls` 为数组时，每个元素可以是字符串或对象
+- **全局高级参数**（推荐简化配置）：
+  - 在顶层设置 `folder_filter`、`regex_pattern`、`regex_replace`，会自动应用到所有链接
+  - 如果某个链接单独指定了这些参数，则以链接的配置为准（覆盖全局设置）
+- **对象格式支持**：
+  - `share_url`：分享链接（必需）
+  - `pwd`：提取码（可选）
+  - `save_dir`：保存目录（可选）
+  - `folder_filter`：文件夹过滤规则（可选，正则表达式或列表，覆盖全局设置）
+  - `regex_pattern`：文件正则表达式（可选，用于文件过滤和重命名，覆盖全局设置）
+  - `regex_replace`：文件正则替换（可选，覆盖全局设置）
+- 保存目录不存在时会自动创建
+- `folder_filter`：只转存匹配的文件夹及其内容
+- `regex_pattern` 和 `regex_replace`：用于文件过滤和重命名
 
 
 ### 必需配置
@@ -231,6 +307,99 @@ https://pan.baidu.com/s/1example3?pwd=abcd /我的文件/资料
 - 不指定目录：使用 `SAVE_DIR` 默认值
 - 指定目录：必须以 `/` 开头
 - 自动创建：目录不存在时会自动创建
+
+## 🎯 高级功能
+
+### 文件夹过滤
+
+支持在转存共享文件夹时，只转存符合要求的文件夹及其内容：
+
+**功能说明：**
+- `folder_filter`：文件夹过滤规则（可选）
+  - **正则表达式字符串**：只转存文件夹名称匹配的文件夹
+  - **列表**：包含多个正则表达式，任一匹配即可转存
+  - **None 或不设置**：不过滤，转存所有文件夹
+
+**使用示例：**
+
+**示例 1：只转存特定年份的文件夹**
+```json
+{
+  "share_urls": [
+    {
+      "share_url": "https://pan.baidu.com/s/xxxxx?pwd=abcd",
+      "save_dir": "/资料",
+      "folder_filter": "2024|2025"
+    }
+  ]
+}
+```
+- 只转存文件夹名称包含 "2024" 或 "2025" 的文件夹
+- 例如：`2024年课程`、`2025年资料` 会被转存
+- 例如：`2023年课程` 会被跳过
+
+**示例 2：使用多个正则表达式**
+```json
+{
+  "share_urls": [
+    {
+      "share_url": "https://pan.baidu.com/s/xxxxx?pwd=abcd",
+      "save_dir": "/资料",
+      "folder_filter": ["^课程", ".*资料.*"]
+    }
+  ]
+}
+```
+- 转存文件夹名称以 "课程" 开头的文件夹
+- 或文件夹名称包含 "资料" 的文件夹
+
+**示例 3：结合文件过滤和文件夹过滤**
+```json
+{
+  "share_urls": [
+    {
+      "share_url": "https://pan.baidu.com/s/xxxxx?pwd=abcd",
+      "save_dir": "/资料",
+      "folder_filter": "2024",
+      "regex_pattern": ".*\\.pdf$",
+      "regex_replace": ""
+    }
+  ]
+}
+```
+- 先过滤文件夹：只转存包含 "2024" 的文件夹
+- 再过滤文件：在这些文件夹中，只转存 PDF 文件
+
+**注意事项：**
+- 文件夹过滤是递归的：如果子文件夹被过滤，其所有内容（包括子文件夹和文件）都会被跳过
+- 正则表达式匹配文件夹名称（不包含路径）
+- 如果正则表达式有误，会默认不过滤（包含所有文件夹），确保不影响正常转存
+
+### 文件过滤与重命名
+
+支持通过正则表达式过滤文件和重命名：
+
+**功能说明：**
+- `regex_pattern`：正则表达式模式，用于匹配文件路径
+- `regex_replace`：替换字符串（可选）
+  - 如果只设置 `regex_pattern`：只转存匹配的文件，不匹配的会被过滤
+  - 如果同时设置 `regex_pattern` 和 `regex_replace`：匹配的文件会被重命名，不匹配的会被过滤
+
+**使用示例：**
+```json
+{
+  "share_urls": [
+    {
+      "share_url": "https://pan.baidu.com/s/xxxxx?pwd=abcd",
+      "save_dir": "/资料",
+      "regex_pattern": ".*课程(\\d+).*\\.mp4$",
+      "regex_replace": "第$1课.mp4"
+    }
+  ]
+}
+```
+- 只转存匹配 `.*课程(\d+).*\.mp4$` 的文件
+- 将文件名从 `某某课程01第1讲.mp4` 重命名为 `第1课.mp4`
 
 ## 🧩 错误收集与上报
 

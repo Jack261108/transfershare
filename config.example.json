@@ -1,0 +1,139 @@
+{
+    "# 说明": "这是一份完整的示例配置文件，所有字段的详细说明见下方注释",
+    "## 基础配置 (必需)": {
+        "说明": "这些字段是必须的，否则程序无法运行"
+    },
+    "cookies": "BDUSS=xxx; STOKEN=xxx; 其他cookie=xxx",
+    "cookies_说明": "百度网盘的 Cookies 字符串，可通过 save_baidu_cookies.py 脚本获取。需要包含至少 BDUSS 和 STOKEN 两个 key。多个 cookie 用分号(;)分隔。",
+    "share_urls": [
+        "https://pan.baidu.com/s/1Dy3hgtnhlStv1wDcM71ayA?pwd=f9c7 /考公/2026/超格",
+        "https://pan.baidu.com/s/1TfYiX1zfQBoMIfDDZNXwrA?pwd=4nxa /考公/2026/图推",
+        "https://pan.baidu.com/s/1iJ3iAP6dzMBez6N1Phxn7g?pwd=41je"
+    ],
+    "share_urls_说明": "分享链接列表（数组格式）。支持多种写法：\n1. 【推荐】链接 + 目录的组合：'https://... /保存目录'\n2. 纯链接：'https://...'\n3. 链接中包含密码：'https://...?pwd=xxxx'\n4. 也支持对象格式实现高级配置（见下方'高级配置'段）",
+    "## 高级配置 (可选)": {
+        "说明": "这些字段都是可选的，可以按需配置"
+    },
+    "save_dir": "/AutoTransfer",
+    "save_dir_说明": "默认保存目录。如果分享链接后没有指定目录，将使用此默认目录。默认值为 '/AutoTransfer'",
+    "wechat_webhook": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxxx",
+    "wechat_webhook_说明": "企业微信机器人 webhook URL（可选）。如果配置，转存完成后会发送通知。如果不需要通知，可以删除或留空。\n获取方法：在企业微信中创建群聊机器人，复制 webhook URL 地址。",
+    "regex_pattern": "\\.(mp4|mkv|avi)$",
+    "regex_pattern_说明": "【全局正则过滤】应用到所有分享链接的文件过滤规则（正则表达式）。\n只有匹配此正则的文件才会被转存。示例：\n- '\\\\.(mp4|mkv|avi)$' 只转存视频文件\n- '\\\\.(pdf|doc|docx)$' 只转存文档\n- '\\\\.(jpg|png|gif)$' 只转存图片\n- '2024|2025' 转存包含年份的文件\n如果留空或删除，表示不过滤，转存所有文件。",
+    "regex_replace": "【可选】新文件名模式",
+    "regex_replace_说明": "与 regex_pattern 搭配使用，用于重命名文件。\n示例：如果 regex_pattern='([0-9]+)-(.+)\\\\.pdf$'，regex_replace='$1_$2.pdf' 可以重命名 PDF 文件。\n留空时表示只过滤，不重命名。",
+    "folder_filter": [
+        "计算机",
+        "数学",
+        "物理"
+    ],
+    "folder_filter_说明": "【文件夹过滤】指定只转存某些文件夹下的文件。\n可以是：\n- 字符串：单个正则表达式模式，如 'Python' 只转存包含 Python 的文件夹\n- 数组：多个正则表达式，任一匹配即可，如 ['计算机', '编程'] 转存匹配这两个关键词的文件夹\n如果留空，表示转存所有文件夹。\n注意：不匹配的文件夹及其所有子文件夹都会被跳过。",
+    "## 高级配置示例 - 按链接配置": {
+        "说明": "share_urls 也可以使用对象数组的方式，为每个链接单独配置参数"
+    },
+    "share_urls_advanced": [
+        {
+            "share_url": "https://pan.baidu.com/s/1Dy3hgtnhlStv1wDcM71ayA",
+            "pwd": "f9c7",
+            "save_dir": "/视频课程",
+            "regex_pattern": "\\.(mp4|mkv)$",
+            "regex_replace": null,
+            "folder_filter": "高级班"
+        },
+        {
+            "share_url": "https://pan.baidu.com/s/1TfYiX1zfQBoMIfDDZNXwrA",
+            "pwd": "4nxa",
+            "save_dir": "/考试资料",
+            "folder_filter": [
+                "真题",
+                "模拟题"
+            ]
+        }
+    ],
+    "share_urls_advanced_说明": "高级配置模式。每个对象可以包含：\n- share_url (必需): 分享链接\n- pwd (可选): 分享密码\n- save_dir (可选): 保存目录，不指定时使用 save_dir 字段的默认值\n- regex_pattern (可选): 该链接的文件过滤规则，会覆盖全局配置\n- regex_replace (可选): 该链接的重命名规则\n- folder_filter (可选): 该链接的文件夹过滤规则\n这种方式适合为不同链接配置不同的转存策略。",
+    "## 完整示例配置": {
+        "说明": "下方是一个完整、可直接使用的配置示例（取消注释后修改相关字段即可使用）"
+    },
+    "## 示例1 - 简单配置": {
+        "注释": "最简单的配置方式，只配置必需字段"
+    },
+    "example_simple": {
+        "cookies": "BDUSS=xxx; STOKEN=xxx",
+        "share_urls": [
+            "https://pan.baidu.com/s/1abcd1234?pwd=1234 /我的文件",
+            "https://pan.baidu.com/s/5efgh5678?pwd=5678 /另一个目录"
+        ],
+        "save_dir": "/AutoTransfer",
+        "wechat_webhook": ""
+    },
+    "## 示例2 - 带通知的完整配置": {
+        "注释": "配置了微信通知和基本的文件过滤"
+    },
+    "example_with_notification": {
+        "cookies": "BDUSS=xxx; STOKEN=xxx",
+        "share_urls": [
+            "https://pan.baidu.com/s/1abcd1234?pwd=1234 /视频库",
+            "https://pan.baidu.com/s/5efgh5678?pwd=5678 /电子书"
+        ],
+        "save_dir": "/AutoTransfer",
+        "wechat_webhook": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxxx",
+        "regex_pattern": "\\.(mp4|mkv|pdf|epub)$",
+        "folder_filter": [
+            "精品",
+            "热门"
+        ]
+    },
+    "## 示例3 - 高级配置（按链接配置）": {
+        "注释": "为不同链接配置不同的参数"
+    },
+    "example_advanced": {
+        "cookies": "BDUSS=xxx; STOKEN=xxx",
+        "save_dir": "/AutoTransfer",
+        "share_urls": [
+            {
+                "share_url": "https://pan.baidu.com/s/1abcd1234",
+                "pwd": "1234",
+                "save_dir": "/视频课程",
+                "regex_pattern": "\\.(mp4|mkv)$",
+                "folder_filter": "高级班"
+            },
+            {
+                "share_url": "https://pan.baidu.com/s/5efgh5678",
+                "pwd": "5678",
+                "save_dir": "/电子书",
+                "regex_pattern": "\\.(pdf|epub|mobi)$"
+            }
+        ],
+        "wechat_webhook": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxxx"
+    },
+    "## 常用正则表达式模板": {
+        "只转存视频": "\\.(mp4|mkv|avi|mov|flv)$",
+        "只转存文档": "\\.(pdf|doc|docx|xls|xlsx|ppt|pptx)$",
+        "只转存图片": "\\.(jpg|jpeg|png|gif|bmp|webp)$",
+        "只转存压缩包": "\\.(zip|rar|7z|tar|gz)$",
+        "只转存音频": "\\.(mp3|flac|aac|wav|m4a)$",
+        "转存除了系统文件外的所有": "^(?!\\.).*$",
+        "转存包含关键词的文件": "2024|2025|新|最新",
+        "转存年份开头的文件": "^(19|20)\\d{2}.*",
+        "忽略视频文件": "^(?!.*\\.(mp4|mkv|avi)$).*$"
+    },
+    "## 说明和最佳实践": {
+        "获取Cookies": "运行 'python save_baidu_cookies.py' 可以自动打开浏览器登录并获取 Cookies",
+        "配置验证": "配置文件会在启动时自动验证，如果格式错误会提示具体错误信息",
+        "敏感信息": "Cookies 和 webhook URL 都包含敏感信息，请勿提交到公开的 Git 仓库",
+        "保留备份": "修改配置前建议保留原配置的备份",
+        "测试新规则": "修改正则表达式或过滤规则后，建议先用一个测试链接验证效果",
+        "性能建议": "如果文件数量很多（>1000），建议配置文件过滤或文件夹过滤以提高效率",
+        "错误排查": "如果转存失败，检查 Cookies 是否过期（可重新运行 save_baidu_cookies.py），或查看错误日志"
+    },
+    "## 环境变量配置": {
+        "说明": "除了使用 config.json，也可以通过环境变量配置（config.json 优先级更高）"
+    },
+    "环境变量列表": {
+        "BAIDU_COOKIES": "百度网盘 Cookies（必需）",
+        "SHARE_URLS": "分享链接列表，多个用逗号或换行分隔（必需）",
+        "SAVE_DIR": "默认保存目录，默认为 '/AutoTransfer'",
+        "WECHAT_WEBHOOK": "企业微信 webhook URL（可选）",
+        "GITHUB_ACTIONS": "GitHub 自动设置，标识是否在 GA 环境中运行"
+    }
+}
