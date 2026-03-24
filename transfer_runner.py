@@ -206,13 +206,13 @@ def main():
         # 获取配置（优先本地 config.json）
         config = get_config()
         log_config_loaded(config)
-        # 修复f-string中不能使用反斜杠的问题
-        newline = "\n"
-        share_count = (
-            len(config["share_urls"].strip().split(newline))
-            if config["share_urls"]
-            else 0
-        )
+        share_urls = config.get("share_urls")
+        if isinstance(share_urls, list):
+            share_count = len(share_urls)
+        elif isinstance(share_urls, str):
+            share_count = len([line for line in share_urls.strip().splitlines() if line.strip()])
+        else:
+            share_count = 0
         logger.info(
             f"  企业微信通知: {'已配置' if config['wechat_webhook'] else '未配置'}"
         )

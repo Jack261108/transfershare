@@ -522,5 +522,7 @@ def error_collection(
     Yields:
         ErrorCollector 实例
     """
-    ec = ErrorCollector(context, wechat_notifier, config, auto_send, suppress)
-    yield ec
+    with ErrorCollector(
+        context, wechat_notifier, config, auto_send, suppress
+    ) as ec:
+        yield ec

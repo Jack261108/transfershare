@@ -165,7 +165,7 @@ class ConfigValidator:
 
         if "qyapi.weixin.qq.com" not in webhook:
             self.warnings.append("⚠️  企业微信 Webhook 格式可能不正确")
-            return False
+            return True
 
         self.info_messages.append("✅ 企业微信 Webhook 有效")
         return True

@@ -563,12 +563,20 @@ class BaiduStorage:
                     content = self.client.list(path)
                     for item in content:
                         if item.is_file:
-                            if item.is_file:
-                                # 只保留文件名进行对比
-                                md5 = item.md5
-                                file_name = os.path.basename(item.path)
-                                files.append({"file_name": file_name, "md5": item.md5})
-                            #   logger.debug(f"记录本地文件: {file_name}")
+                            item_path = getattr(item, "path", "").replace("\\", "/")
+                            relative_path = item_path
+                            if item_path.startswith(base):
+                                relative_path = item_path[len(base) :]
+                            else:
+                                relative_path = item_path.lstrip("/")
+                            file_name = os.path.basename(item_path)
+                            files.append(
+                                {
+                                    "relative_path": relative_path,
+                                    "file_name": file_name,
+                                    "md5": getattr(item, "md5", None),
+                                }
+                            )
                         elif item.is_dir:
                             _list_dir(item.path)
                 except Exception as e:
@@ -1351,13 +1359,12 @@ class BaiduStorage:
                             f"本地目录中有 {len(local_files)} 个文件（按相对路径统计）",
                         )
 
-                # 提取所有文件名（只取文件名部分）
+                # 统计重复文件名（仅用于日志提示，不参与去重）
                 file_names = [
                     self._normalize_path(f["file_name"], file_only=True)
                     for f in local_files
                 ]
 
-                # 统计重复文件名
                 name_counts = Counter(file_names)
                 dup_names = [name for name, count in name_counts.items() if count > 1]
 
@@ -1370,8 +1377,9 @@ class BaiduStorage:
                     logger.info("✅ 没有发现重复文件名。")
 
                 local_files_dict = {
-                    self._normalize_path(f["file_name"], file_only=True): f["md5"]
+                    self._normalize_path(f["relative_path"]): f["md5"]
                     for f in local_files
+                    if f.get("relative_path")
                 }
                 # 步骤3：准备转存（对比文件、准备目录）
                 target_dir = save_dir
@@ -1408,53 +1416,49 @@ class BaiduStorage:
                                 )
                             continue
 
-                    # 去重检查逻辑：使用相对路径去重，避免不同子目录同名误判
-                    clean_normalized = self._normalize_path(
-                        clean_path.lstrip("/"), file_only=True
-                    )
-                    final_normalized = self._normalize_path(
-                        final_path.lstrip("/"), file_only=True
-                    )
-                    # 检查原文件是否存在
-                    original_exists = clean_normalized in local_files_dict.keys()
-                    # 检查重命名后文件是否存在
-                    final_exists = final_normalized in local_files_dict.keys()
-                    # 检查文件是否已存在（对比相对路径）
+                    # 去重检查逻辑：按相对路径去重，避免不同子目录同名误判
+                    clean_normalized = self._normalize_path(clean_path.lstrip("/"))
+                    final_normalized = self._normalize_path(final_path.lstrip("/"))
+                    original_exists = clean_normalized in local_files_dict
+                    final_exists = final_normalized in local_files_dict
                     if original_exists or final_exists:
+                        existing_paths = []
+                        if original_exists:
+                            existing_paths.append(clean_normalized)
+                        if final_exists and final_normalized not in existing_paths:
+                            existing_paths.append(final_normalized)
+
                         src_md5 = (
                             file_info.get("md5")
                             if isinstance(file_info, dict)
                             else None
                         )
                         if src_md5:
-                            # 可获取 md5 时：与目标同路径文件的 md5 对比再决定是否跳过
-                            try:
-                                dest_md5 = local_files_dict[clean_normalized]
-                            except Exception:
-                                dest_md5 = None
-                                if progress_callback:
-                                    progress_callback(
-                                        "info",
-                                        f"文件已存在，无法获取目标文件 MD5，跳过: {final_path}",
-                                    )
-                                continue
-                            if dest_md5 and dest_md5 == src_md5:
+                            existing_md5s = [
+                                local_files_dict.get(path) for path in existing_paths
+                            ]
+                            if any(dest_md5 and dest_md5 == src_md5 for dest_md5 in existing_md5s):
                                 if progress_callback:
                                     progress_callback(
                                         "info",
                                         f"文件已存在且内容相同（MD5 相同），跳过: {final_path}",
                                     )
                                 continue
-                            else:
+                            if any(dest_md5 is None for dest_md5 in existing_md5s):
                                 if progress_callback:
                                     progress_callback(
-                                        "warning",
-                                        f"同路径已存在,但内容不同(md5不同),跳过： {final_path}",
+                                        "info",
+                                        f"文件已存在，无法获取目标文件 MD5，跳过: {final_path}",
                                     )
                                 continue
-                                # 不 continue，后续加入 transfer_list
+                            if progress_callback:
+                                progress_callback(
+                                    "warning",
+                                    f"同路径已存在,但内容不同(md5不同),跳过： {final_path}",
+                                )
+                            continue
                         else:
-                            # 无法获取源 MD5：保持原有策略，按路径命中直接跳过
+                            # 无法获取源 MD5：按目标相对路径命中直接跳过
                             if progress_callback:
                                 progress_callback(
                                     "info",
@@ -1529,10 +1533,14 @@ class BaiduStorage:
                 # 按目录分组进行转存
                 success_count = 0
                 grouped_transfers = {}
-                for fs_id, dir_path, _, _, _ in transfer_list:
+                grouped_transfer_items = {}
+                for item in transfer_list:
+                    fs_id, dir_path, _, _, _ = item
                     grouped_transfers.setdefault(dir_path, []).append(fs_id)
+                    grouped_transfer_items.setdefault(dir_path, []).append(item)
 
                 total_files = len(transfer_list)
+                successful_transfer_items = []
 
                 # 对每个目录进行批量转存
                 for dir_path, fs_ids in grouped_transfers.items():
@@ -1565,6 +1573,9 @@ class BaiduStorage:
                             error_msg = "转存失败: 客户端或参数无效"
                             raise ValueError(error_msg)
                         success_count += len(fs_ids)
+                        successful_transfer_items.extend(
+                            grouped_transfer_items.get(dir_path, [])
+                        )
                         if progress_callback:
                             progress_callback("success", f"成功转存到 {dir_path}")
                     except Exception as e:
@@ -1596,6 +1607,9 @@ class BaiduStorage:
                                     error_msg = "重试转存失败: 客户端或参数无效"
                                     raise ValueError(error_msg)
                                 success_count += len(fs_ids)
+                                successful_transfer_items.extend(
+                                    grouped_transfer_items.get(dir_path, [])
+                                )
                                 if progress_callback:
                                     progress_callback(
                                         "success", f"重试成功: {dir_path}"
@@ -1626,7 +1640,7 @@ class BaiduStorage:
                     clean_path,
                     final_path,
                     need_rename,
-                ) in transfer_list:
+                ) in successful_transfer_items:
                     if need_rename:
                         try:
                             # 构建转存后的完整路径（原始文件名）
@@ -1689,7 +1703,7 @@ class BaiduStorage:
                     return {
                         "success": True,
                         "message": f"部分转存成功，成功转存 {success_count}/{total_files} 个文件",
-                        "transferred_files": renamed_files[:success_count],
+                        "transferred_files": renamed_files,
                     }
                 else:  # 全部失败
                     # 收集错误（所有文件都失败）
