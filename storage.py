@@ -795,7 +795,14 @@ class BaiduStorage:
                         files.append(file_info)
 
         except Exception as e:
-            pass
+            handle_error_and_notify(
+                e,
+                f"获取共享目录文件时发生异常\n目录路径: {getattr(path, 'path', path)}",
+                self.wechat_notifier,
+                None,
+                collect=True,
+            )
+            raise
 
         return files
 
@@ -860,10 +867,15 @@ class BaiduStorage:
                     # 验证配置
                     if not isinstance(config, dict) or "share_url" not in config:
                         error_msg = f"第 {index} 个配置格式错误：缺少分享链接"
+                        invalid_share_url = (
+                            config.get("share_url", "未知")
+                            if isinstance(config, dict)
+                            else str(config)
+                        )
                         results.append(
                             {
                                 "index": index,
-                                "share_url": config.get("share_url", "未知"),
+                                "share_url": invalid_share_url,
                                 "success": False,
                                 "error": error_msg,
                             }
@@ -1643,19 +1655,18 @@ class BaiduStorage:
                 ) in successful_transfer_items:
                     if need_rename:
                         try:
-                            # 构建转存后的完整路径（原始文件名）
-                            original_full_path = posixpath.join(
-                                dir_path, os.path.basename(clean_path)
-                            )
-                            # 构建重命名后的完整路径
-                            final_full_path = posixpath.join(
-                                dir_path, os.path.basename(final_path)
-                            )
+                            original_full_path = posixpath.join(target_dir, clean_path)
+                            final_full_path = posixpath.join(target_dir, final_path)
+                            final_parent_dir = posixpath.dirname(final_full_path).replace("\\", "/")
+
+                            if final_parent_dir and final_parent_dir != dir_path:
+                                if not self._ensure_dir_exists(final_parent_dir):
+                                    raise ValueError(f"创建重命名目标目录失败: {final_parent_dir}")
 
                             if progress_callback:
                                 progress_callback(
                                     "info",
-                                    f"重命名文件: {os.path.basename(clean_path)} -> {os.path.basename(final_path)}",
+                                    f"重命名文件: {clean_path} -> {final_path}",
                                 )
 
                             # 使用baidupcs-py的rename方法（需要完整路径）

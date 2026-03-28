@@ -251,16 +251,30 @@ def read_env_values(env_path: Path) -> Dict[str, str]:
     try:
         if not env_path.exists():
             raise FileNotFoundError(f"找不到 env 文件: {env_path}")
-        text = env_path.read_text(encoding="utf-8")
 
-        def extract(key: str) -> str:
-            m = re.search(rf'^{re.escape(key)}="(.*)"\s*$', text, re.MULTILINE)
-            return m.group(1) if m else ""
-
-        return {
-            "BAIDU_COOKIES": extract("BAIDU_COOKIES"),
-            "BAIDU_COOKIES_FULL": extract("BAIDU_COOKIES_FULL"),
+        env_values = {
+            "BAIDU_COOKIES": "",
+            "BAIDU_COOKIES_FULL": "",
         }
+
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+
+            if key not in env_values:
+                continue
+
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                value = value[1:-1]
+
+            env_values[key] = value
+
+        return env_values
     except Exception as e:
         print(f"读取 env 文件失败: {e}")
         sys.exit(1)
@@ -478,7 +492,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # main()
-    update_secret_shareurl_from_config(
-        repo="Jack-261108/transfershare", name="SHARE_URLS"
-    )
+    main()

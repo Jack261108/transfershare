@@ -10,6 +10,7 @@ import os
 import sys
 import re
 from pathlib import Path
+from storage import BaiduStorage
 
 
 class ConfigValidator:
@@ -76,54 +77,64 @@ class ConfigValidator:
             self.errors.append("❌ 缺少 share_urls 字段 (share_urls 或 SHARE_URLS)")
             return False
 
-        urls = []
+        valid_urls = 0
+        total_urls = 0
 
-        # 处理不同格式
         if isinstance(share_urls, list):
-            urls = share_urls
-        elif isinstance(share_urls, str):
-            # 多行或逗号分隔
-            if "," in share_urls:
-                urls = [x.strip() for x in share_urls.split(",") if x.strip()]
+            total_urls = len(share_urls)
+            if total_urls == 0:
+                self.errors.append("❌ share_urls 为空")
+                return False
+
+            has_objects = any(isinstance(item, dict) for item in share_urls)
+            if has_objects:
+                for idx, item in enumerate(share_urls, 1):
+                    if not isinstance(item, dict):
+                        self.warnings.append(
+                            f"⚠️  第 {idx} 个链接格式可能不正确: {str(item)[:50]}..."
+                        )
+                        continue
+                    share_url = str(item.get("share_url", "")).strip()
+                    if not share_url:
+                        self.errors.append(f"❌ 第 {idx} 个链接缺少 share_url 字段")
+                        continue
+                    if re.search(r"https://pan\.baidu\.com/s/[A-Za-z0-9_-]+", share_url):
+                        valid_urls += 1
+                    else:
+                        self.warnings.append(
+                            f"⚠️  第 {idx} 个链接格式可能不正确: {share_url[:50]}..."
+                        )
             else:
-                urls = [x.strip() for x in share_urls.split("\n") if x.strip()]
+                text_content = "\n".join(
+                    [str(item).strip() for item in share_urls if str(item).strip()]
+                )
+                parsed_configs = BaiduStorage.parse_share_links_from_text(
+                    None, text_content, self.config.get("save_dir") or self.config.get("SAVE_DIR")
+                )
+                valid_urls = len(parsed_configs)
+        elif isinstance(share_urls, str):
+            text_content = share_urls
+            total_urls = len([x for x in share_urls.splitlines() if x.strip()])
+            parsed_configs = BaiduStorage.parse_share_links_from_text(
+                None, text_content, self.config.get("save_dir") or self.config.get("SAVE_DIR")
+            )
+            valid_urls = len(parsed_configs)
         else:
             self.errors.append(
                 f"❌ share_urls 格式错误，应为列表或字符串，当前类型: {type(share_urls).__name__}"
             )
             return False
 
-        if not urls:
+        if total_urls == 0:
             self.errors.append("❌ share_urls 为空")
             return False
-
-        # 验证每个 URL
-        valid_urls = 0
-        for idx, url in enumerate(urls, 1):
-            if isinstance(url, dict):
-                # 对象格式
-                if "share_url" not in url:
-                    self.errors.append(f"❌ 第 {idx} 个链接缺少 share_url 字段")
-                    continue
-                url_str = url.get("share_url", "")
-            else:
-                url_str = str(url)
-
-            # 提取链接部分（去掉目录）
-            url_match = re.search(r"https://pan\.baidu\.com/s/[A-Za-z0-9_-]+", url_str)
-            if url_match:
-                valid_urls += 1
-            else:
-                self.warnings.append(
-                    f"⚠️  第 {idx} 个链接格式可能不正确: {url_str[:50]}..."
-                )
 
         if valid_urls == 0:
             self.errors.append("❌ 没有找到有效的分享链接")
             return False
 
         self.info_messages.append(
-            f"✅ 分享链接有效 (共 {len(urls)} 个，其中 {valid_urls} 个有效)"
+            f"✅ 分享链接有效 (共 {total_urls} 项，其中 {valid_urls} 个有效)"
         )
         return True
 

@@ -201,6 +201,7 @@ def main():
 
     config = None
     notifier = None
+    run_success = False
 
     try:
         # 获取配置（优先本地 config.json）
@@ -373,13 +374,15 @@ def main():
             # 非成功结果也统一走 finally，通知在结尾统一发送
             sys.exit(1)
 
+        run_success = True
+
     except Exception as e:
         # 不在 ErrorCollector 作用域内，直接发送错误通知
         handle_error_and_notify(e, "主任务执行失败", notifier, config, collect=False)
         sys.exit(1)
 
     finally:
-        log_shutdown()
+        log_shutdown(success=run_success)
 
 
 if __name__ == "__main__":
