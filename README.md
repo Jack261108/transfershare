@@ -62,11 +62,27 @@ graph LR
 
 ### 运行依赖安装
 
+主程序 `transfer_runner.py` 的运行依赖在 `requirements.txt` 中：
+
 ```bash
 pip install -r requirements.txt
 ```
 
+### 运行测试
+
+最小测试集基于 Python 标准库 `unittest`，不依赖 `pytest`。
+
+```bash
+# 运行全部测试
+python -m unittest discover -s tests -p "test_*.py"
+
+# 单独运行 transfer_runner 冒烟测试
+python -m unittest tests.test_transfer_runner
+```
+
 ### 可选：Playwright（仅用于获取 Cookies 的辅助脚本）
+
+`requirements-playwright.txt` 只用于 `save_baidu_cookies.py`，不运行主转存任务时可不安装。
 
 ```bash
 pip install -r requirements-playwright.txt
@@ -136,14 +152,19 @@ python save_baidu_cookies.py --headless
 
 ### 本地配置文件 config.json（优先级高于环境变量）
 
-支持在项目根目录提供 `config.json`，程序将优先读取本地配置；当文件缺失或字段不完整时，自动回退到环境变量方案。
+支持在项目根目录提供 `config.json`，程序将优先读取本地配置；当文件缺失或读取失败时，会自动回退到环境变量方案。
 
 - 文件路径：`./config.json`
-- 字段说明：
+- 字段别名兼容：
   - `cookies` 或 `BAIDU_COOKIES`：百度网盘 Cookies（至少包含 BDUSS 与 STOKEN），例如 `BDUSS=...; STOKEN=...`
-  - `share_urls` 或 `SHARE_URLS`：分享链接集合，支持数组或字符串（逗号/换行分隔均可）
+  - `share_urls` 或 `SHARE_URLS`：分享链接集合，支持数组、对象数组或字符串
   - `save_dir` 或 `SAVE_DIR`：保存目录，默认 `/AutoTransfer`
   - `wechat_webhook` 或 `WECHAT_WEBHOOK`：企业微信机器人 Webhook，可选
+- 统一加载规则：
+  - 本地配置优先，环境变量作为回退
+  - `share_urls` 为字符串时，支持逗号或换行分隔，程序会统一归一化
+  - `share_urls` 为对象数组时，会保留每个链接自己的 `save_dir`、`folder_filter`、`regex_pattern`、`regex_replace`
+  - 顶层 `folder_filter`、`regex_pattern`、`regex_replace` 会作为默认值应用到未单独配置的链接
 
 **示例 1：简单配置**
 ```json
@@ -275,15 +296,20 @@ https://pan.baidu.com/s/1example3?pwd=abcd /我的文件/资料
 4. 选择分支（通常是 main）
 5. 点击绿色的 "Run workflow" 按钮
 
-### 本地测试
+### 本地运行
 
 ```bash
-# 设置环境变量
+# 安装主程序依赖
+pip install -r requirements.txt
+
+# 如需使用本地配置文件，准备 config.json
+# 或者设置环境变量后直接运行
 export BAIDU_COOKIES="BDUSS=xxx; STOKEN=xxx"
+export SHARE_URLS="https://pan.baidu.com/s/xxxxxxxx?pwd=abcd /保存目录"
 export WECHAT_WEBHOOK="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxxx"
 
-# 运行测试
-python test_transfer.py
+# 执行主任务
+python transfer_runner.py
 ```
 
 ## 🔗 分享链接格式说明
@@ -476,7 +502,7 @@ except Exception as e:
 解决方法: 
   1. 检查 WECHAT_WEBHOOK 是否正确
   2. 确认机器人已加入目标群聊
-  3. 使用 `python test_wechat.py` 测试通知功能
+  3. 使用企业微信机器人提供的 webhook 自测，或直接运行 `python transfer_runner.py` 验证通知链路
 ```
 
 ## ⚠️ 注意事项
