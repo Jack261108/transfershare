@@ -36,6 +36,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Optional, Tuple, Dict
 
+from config_utils import build_share_urls_text, load_json_config, normalize_config_aliases
+
 try:
     from logger import get_logger, setup_logging
 except ImportError:
@@ -92,10 +94,7 @@ PREFERRED_ORDER = [
 def load_config(config_path: Path = Path("config.json")) -> Dict:
     """从配置文件加载配置，带错误处理"""
     try:
-        if not config_path.exists():
-            raise FileNotFoundError(f"配置文件不存在: {config_path}")
-        with open(config_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        return normalize_config_aliases(load_json_config(config_path))
     except json.JSONDecodeError as e:
         print(f"配置文件格式错误: {e}")
         sys.exit(1)
@@ -104,14 +103,23 @@ def load_config(config_path: Path = Path("config.json")) -> Dict:
         sys.exit(1)
 
 
+def _require_config_value(config: Dict, key: str, empty_message: str) -> str:
+    value = config.get(key, "")
+    if not value:
+        print(empty_message)
+        sys.exit(1)
+    return value
+
+
 def update_secret_shareurl_from_config(repo: str, name: str):
     """从 config.json 读取 share_urls 并写入 GitHub Secrets"""
     config = load_config()
-    urls = config.get("share_urls", [])
-    if not urls:
+    share_urls = build_share_urls_text(
+        config.get("share_urls"), config.get("save_dir")
+    )
+    if not share_urls:
         print("配置文件中未找到 share_urls")
         sys.exit(1)
-    share_urls = "\n".join([s for s in urls if isinstance(s, str) and s.strip()])
     ensure_gh()
     set_secret(repo, name, share_urls)
 
@@ -119,10 +127,7 @@ def update_secret_shareurl_from_config(repo: str, name: str):
 def update_secret_cookie_from_config(repo: str, name: str):
     """从 config.json 读取 cookies 并写入 GitHub Secrets"""
     config = load_config()
-    cookies: str = config.get("cookies", "")
-    if not cookies:
-        print("配置文件中未找到 cookies")
-        sys.exit(1)
+    cookies = _require_config_value(config, "cookies", "配置文件中未找到 cookies")
     ensure_gh()
     set_secret(repo, name, cookies)
 

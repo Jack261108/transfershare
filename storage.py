@@ -18,6 +18,7 @@ from utils import (
     handle_error_and_notify,
     ErrorCollector,
 )
+from config_utils import parse_share_links_from_text
 
 try:
     from logger import get_logger
@@ -63,6 +64,7 @@ class BaiduStorage:
         self.wechat_notifier = (
             WeChatNotifier(wechat_webhook) if wechat_webhook else None
         )
+        self._local_files_cache = {}
 
     def _inject_timeout(self):
         """
@@ -519,10 +521,14 @@ class BaiduStorage:
             # 出错时返回原始路径，不影响正常流程
             return True, file_path
 
-    def list_local_files(self, dir_path):
+    def list_local_files(self, dir_path, use_cache=False):
         """获取指定目录下已存在文件的相对路径集合
         返回相对于 dir_path 的规范化相对路径（使用正斜杠），用于去重对比
         """
+        normalized_dir_path = self._normalize_path(dir_path)
+        if use_cache and normalized_dir_path in self._local_files_cache:
+            return [dict(item) for item in self._local_files_cache[normalized_dir_path]]
+
         try:
             # 检查客户端是否可用
             if not self.client:
@@ -534,27 +540,10 @@ class BaiduStorage:
                     None,
                     collect=False,
                 )
-                return set()
+                return []
 
             files = []
-
-            # 检查目录是否存在
-            try:
-                self.client.list(dir_path)
-            except Exception as e:
-                if "error_code: 31066, message: 文件不存在" in str(e) or "-9" in str(e):
-                    return set()
-                else:
-                    handle_error_and_notify(
-                        e,
-                        f"检查本地目录时发生错误\n目录路径: {dir_path}",
-                        self.wechat_notifier,
-                        None,
-                        collect=False,
-                    )
-                    return set()
-
-            base = dir_path.replace("\\", "/")
+            base = normalized_dir_path.replace("\\", "/")
             if not base.endswith("/"):
                 base += "/"
 
@@ -580,6 +569,10 @@ class BaiduStorage:
                         elif item.is_dir:
                             _list_dir(item.path)
                 except Exception as e:
+                    if path == normalized_dir_path and (
+                        "error_code: 31066, message: 文件不存在" in str(e) or "-9" in str(e)
+                    ):
+                        return
                     handle_error_and_notify(
                         e,
                         f"列出目录内容时发生错误\n目录路径: {path}",
@@ -589,7 +582,9 @@ class BaiduStorage:
                     )
                     raise
 
-            _list_dir(dir_path)
+            _list_dir(normalized_dir_path)
+            if use_cache:
+                self._local_files_cache[normalized_dir_path] = [dict(item) for item in files]
             return files
         except Exception as e:
             handle_error_and_notify(
@@ -599,7 +594,7 @@ class BaiduStorage:
                 None,
                 collect=False,
             )
-            return set()
+            return []
 
     def _get_remote_file_md5(self, full_path: str):
         """查询目标网盘上指定文件的 md5（若 API 返回）
@@ -856,6 +851,8 @@ class BaiduStorage:
                     "results": [],
                 }
 
+            self._local_files_cache.clear()
+
             total_count = len(share_configs)
             success_count = 0
             failed_count = 0
@@ -881,7 +878,6 @@ class BaiduStorage:
                             }
                         )
                         failed_count += 1
-                        # 统一错误处理（内部会自动收集错误）
                         handle_error_and_notify(
                             ValueError(error_msg),
                             f"批量转存配置错误: 第 {index} 个配置格式错误",
@@ -957,7 +953,6 @@ class BaiduStorage:
                                 "error",
                                 f'【{index}/{total_count}】失败: {result.get("error")}',
                             )
-                        # 统一错误处理（内部会自动收集错误）
                         error_msg = result.get("error", "未知错误")
                         detailed_error = f"批量转存中单个链接失败\n分享链接: {share_url}\n保存目录: {save_dir}\n错误信息: {error_msg}"
                         handle_error_and_notify(
@@ -989,7 +984,6 @@ class BaiduStorage:
                         progress_callback(
                             "error", f"【{index}/{total_count}】异常: {str(e)}"
                         )
-                    # 统一错误处理（内部会自动收集错误和打印详细信息）
                     handle_error_and_notify(
                         e,
                         f"处理第 {index} 个分享链接时发生异常\n分享链接: {config.get('share_url', '未知')}",
@@ -1030,102 +1024,10 @@ class BaiduStorage:
                 "message": summary,  # 为兼容性添加message字段
             }
 
-    def parse_share_links_from_text(self, text, default_save_dir=None):
-        """
-        解析分享链接，支持以下格式：
-        - https://pan.baidu.com/s/xxxxxx?pwd=abcd
-        - https://pan.baidu.com/s/xxxxxx 以及 同行/下一行 指定提取码与保存目录
-          示例：
-            https://pan.baidu.com/s/1abcDefGh
-            提取码: abcd /保存目录/子目录
-        Args:
-            text: 包含分享链接的文本
-            default_save_dir: 默认保存目录（当链接后没有指定目录时使用）
-        Returns:
-            list: 分享配置列表
-        """
-        try:
-            share_configs = []
-
-            # 允许可选的 ?pwd=xxxx
-            url_pattern = (
-                r"https://pan\.baidu\.com/s/[A-Za-z0-9_-]+"  # 不强制要求 ?pwd=
-            )
-            pwd_inline_pattern = r"(?:\bpwd\b|密码|提取码)[:：]?\s*([A-Za-z0-9]{4})"
-
-            lines = text.strip().split("\n") if text else []
-
-            for line_idx, raw_line in enumerate(lines):
-                line = raw_line.strip()
-                if not line:
-                    continue
-
-                m = re.search(url_pattern, line)
-                if not m:
-                    continue
-
-                share_url = m.group(0)
-                pwd = None
-                save_dir = None
-
-                # 1) URL 内自带 ?pwd=xxxx（优先识别）
-                if "?pwd=" in line[m.start() :]:
-                    try:
-                        _, pwd_part = line[m.start() :].split("?pwd=", 1)
-                        pwd = pwd_part[:4]
-                    except Exception:
-                        pwd = None
-
-                # 2) 同行剩余文本里查找“pwd/提取码/密码”
-                if not pwd:
-                    remain = line[m.end() :]
-                    mm = re.search(pwd_inline_pattern, remain, flags=re.IGNORECASE)
-                    if mm:
-                        pwd = mm.group(1)
-
-                # 3) 下一行里查找密码与保存目录（若下一行不是另一个 URL）
-                next_line = (
-                    lines[line_idx + 1].strip() if line_idx + 1 < len(lines) else ""
-                )
-                if not re.search(url_pattern, next_line):
-                    if not pwd and next_line:
-                        mm2 = re.search(
-                            pwd_inline_pattern, next_line, flags=re.IGNORECASE
-                        )
-                        if mm2:
-                            pwd = mm2.group(1)
-
-                # 保存目录：优先同行 URL 之后第一个以 / 开头的 token；否则看下一行
-                remain_after_url = line[m.end() :].strip()
-                if remain_after_url:
-                    tokens = remain_after_url.split()
-                    for t in tokens:
-                        if t.startswith("/"):
-                            save_dir = t
-                            break
-                if not save_dir and next_line and not re.search(url_pattern, next_line):
-                    tokens2 = next_line.split()
-                    for t in tokens2:
-                        if t.startswith("/"):
-                            save_dir = t
-                            break
-
-                if not save_dir:
-                    save_dir = default_save_dir
-
-                config = {
-                    "share_url": share_url,
-                    "pwd": pwd,
-                    "line_number": line_idx + 1,
-                }
-                if save_dir:
-                    config["save_dir"] = save_dir
-
-                share_configs.append(config)
-
-            return share_configs
-        except Exception:
-            return []
+    @staticmethod
+    def parse_share_links_from_text(text, default_save_dir=None):
+        """兼容旧调用方式，实际委托给共享配置工具。"""
+        return parse_share_links_from_text(text, default_save_dir)
 
     def transfer_shares_from_text(
         self, text, default_save_dir=None, progress_callback=None
@@ -1142,21 +1044,18 @@ class BaiduStorage:
         """
         with ErrorCollector(
             "从文本中解析并批量转存分享链接", self.wechat_notifier, None
-        ) as ec:
+        ):
             try:
                 if progress_callback:
                     progress_callback("info", "解析文本中的分享链接...")
 
                 # 解析分享链接
-                share_configs = self.parse_share_links_from_text(text, default_save_dir)
+                share_configs = parse_share_links_from_text(text, default_save_dir)
 
                 if not share_configs:
                     error_msg = "文本中未找到有效的分享链接，请确保使用 https://pan.baidu.com/s/xxxxx?pwd=xxxx 格式"
                     if progress_callback:
                         progress_callback("warning", error_msg)
-                    # 收集错误
-                    ec.capture(ValueError(error_msg), "解析分享链接失败")
-                    # 统一错误处理
                     handle_error_and_notify(
                         ValueError(error_msg),
                         "解析分享链接失败",
@@ -1204,41 +1103,6 @@ class BaiduStorage:
                     "results": [],
                 }
 
-    def _send_error_and_return(
-        self, error_msg, share_url=None, save_dir=None, error_obj=None, context=""
-    ):
-        """
-        发送错误信息并返回错误结果
-
-        Args:
-            error_msg: 错误消息
-            share_url: 分享链接
-            save_dir: 保存目录
-            error_obj: 错误对象（如果为 None，则使用 error_msg 创建 ValueError）
-            context: 错误上下文
-
-        Returns:
-            dict: 错误结果
-        """
-        # 构建完整的错误消息
-        full_error_msg = error_msg
-        if share_url:
-            full_error_msg += f"\n分享链接: {share_url}"
-        if save_dir:
-            full_error_msg += f"\n保存目录: {save_dir}"
-
-        # 使用统一的错误处理（内部会自动收集错误）
-        error = error_obj if error_obj else ValueError(full_error_msg)
-        handle_error_and_notify(
-            error,
-            context or "转存失败",
-            self.wechat_notifier,
-            None,
-            collect=True,
-        )
-
-        return {"success": False, "error": error_msg}
-
     def transfer_share(
         self,
         share_url,
@@ -1274,13 +1138,16 @@ class BaiduStorage:
         # 错误通知由最外层的 ErrorCollector 统一发送
         with ErrorCollector(
             f"转存分享文件: {share_url}", self.wechat_notifier, None, auto_send=False
-        ) as ec:
+        ):
             # 检查客户端是否可用
             if not self.client:
                 error_msg = "客户端未初始化或初始化失败"
-                ec.capture(
+                handle_error_and_notify(
                     ValueError(error_msg),
                     f"转存分享文件: 客户端不可用\n分享链接: {share_url}",
+                    self.wechat_notifier,
+                    None,
+                    collect=True,
                 )
                 return {"success": False, "error": error_msg}
 
@@ -1307,9 +1174,12 @@ class BaiduStorage:
                     self.client.shared_paths, shared_url=share_url
                 )
                 if not shared_paths:
-                    # 收集错误并返回（致命错误）
-                    ec.capture(
-                        ValueError("获取分享文件列表失败"), "获取分享文件列表失败"
+                    handle_error_and_notify(
+                        ValueError("获取分享文件列表失败"),
+                        "获取分享文件列表失败",
+                        self.wechat_notifier,
+                        None,
+                        collect=True,
                     )
                     return {"success": False, "error": "获取分享文件列表失败"}
 
@@ -1364,7 +1234,7 @@ class BaiduStorage:
                 # 获取本地文件列表
                 local_files = []
                 if save_dir:
-                    local_files = self.list_local_files(save_dir)
+                    local_files = self.list_local_files(save_dir, use_cache=True)
                     if progress_callback:
                         progress_callback(
                             "info",
@@ -1524,10 +1394,12 @@ class BaiduStorage:
                 for _, dir_path, _, _, _ in transfer_list:
                     if dir_path not in created_dirs:
                         if not self._ensure_dir_exists(dir_path):
-                            # 收集错误并返回（致命错误）
-                            ec.capture(
+                            handle_error_and_notify(
                                 ValueError(f"创建目录失败: {dir_path}"),
                                 f"创建目录失败: {dir_path}",
+                                self.wechat_notifier,
+                                None,
+                                collect=True,
                             )
                             return {
                                 "success": False,
@@ -1588,6 +1460,8 @@ class BaiduStorage:
                         successful_transfer_items.extend(
                             grouped_transfer_items.get(dir_path, [])
                         )
+                        if target_dir:
+                            self._local_files_cache.pop(self._normalize_path(target_dir), None)
                         if progress_callback:
                             progress_callback("success", f"成功转存到 {dir_path}")
                     except Exception as e:
@@ -1622,6 +1496,8 @@ class BaiduStorage:
                                 successful_transfer_items.extend(
                                     grouped_transfer_items.get(dir_path, [])
                                 )
+                                if target_dir:
+                                    self._local_files_cache.pop(self._normalize_path(target_dir), None)
                                 if progress_callback:
                                     progress_callback(
                                         "success", f"重试成功: {dir_path}"
@@ -1630,16 +1506,24 @@ class BaiduStorage:
                                 error_msg = f"转存失败: {dir_path} - {str(retry_e)}"
                                 if progress_callback:
                                     progress_callback("error", error_msg)
-                                # 收集错误，继续处理其他文件（非致命错误）
-                                ec.capture(retry_e, f"转存失败: {dir_path}")
-                                # 不返回，继续处理其他目录
+                                handle_error_and_notify(
+                                    retry_e,
+                                    f"转存失败: {dir_path}",
+                                    self.wechat_notifier,
+                                    None,
+                                    collect=True,
+                                )
                         else:
                             error_msg = f"转存失败: {dir_path} - {str(e)}"
                             if progress_callback:
                                 progress_callback("error", error_msg)
-                            # 收集错误，继续处理其他文件（非致命错误）
-                            ec.capture(e, f"转存失败: {dir_path}")
-                            # 不返回，继续处理其他目录
+                            handle_error_and_notify(
+                                e,
+                                f"转存失败: {dir_path}",
+                                self.wechat_notifier,
+                                None,
+                                collect=True,
+                            )
 
                     time.sleep(FREQUENCY_LIMIT_DELAY)  # 遍历避免频率限制
 
@@ -1678,14 +1562,15 @@ class BaiduStorage:
                             time.sleep(RENAME_DELAY)
 
                         except Exception as e:
-                            # 重命名失败时使用原文件名（非致命错误，继续处理）
                             error_msg = f"重命名文件失败: {os.path.basename(clean_path)} -> {os.path.basename(final_path)}"
                             if progress_callback:
                                 progress_callback("error", f"{error_msg}: {str(e)}")
-                            # 收集错误，继续处理其他文件
-                            ec.capture(
+                            handle_error_and_notify(
                                 e,
                                 f"重命名文件失败\n原始文件: {os.path.basename(clean_path)}\n目标文件: {os.path.basename(final_path)}",
+                                self.wechat_notifier,
+                                None,
+                                collect=True,
                             )
                             renamed_files.append(clean_path)
                     else:
@@ -1717,10 +1602,12 @@ class BaiduStorage:
                         "transferred_files": renamed_files,
                     }
                 else:  # 全部失败
-                    # 收集错误（所有文件都失败）
-                    ec.capture(
+                    handle_error_and_notify(
                         ValueError("转存失败，没有文件成功转存"),
                         "转存失败，没有文件成功转存",
+                        self.wechat_notifier,
+                        None,
+                        collect=True,
                     )
                     return {
                         "success": False,
