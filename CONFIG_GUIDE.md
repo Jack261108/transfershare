@@ -2,9 +2,11 @@
 
 ## 快速开始
 
-### 1. 复制配置模板
+### 1. 准备配置文件
+如果项目中已有 `config.example.json`，可复制一份为 `config.json` 后再修改：
+
 ```bash
-cp config.template.json config.json
+cp config.example.json config.json
 ```
 
 ### 2. 编辑配置文件
@@ -25,6 +27,10 @@ cp config.template.json config.json
 ```bash
 python transfer_runner.py
 ```
+
+> 配置加载规则：优先读取项目根目录 `config.json`；如果本地配置不存在或读取失败，会回退到环境变量 `BAIDU_COOKIES`、`SHARE_URLS`、`SAVE_DIR`、`WECHAT_WEBHOOK`。
+>
+> 字段别名兼容：`cookies/BAIDU_COOKIES`、`share_urls/SHARE_URLS`、`save_dir/SAVE_DIR`、`wechat_webhook/WECHAT_WEBHOOK` 会统一归一化处理。
 
 ---
 
@@ -103,12 +109,20 @@ BDUSS=xxx; STOKEN=yyy; BDUSS_BFESS=zzz; ...
 - 支持中文路径
 - 不指定时使用 `save_dir` 的值
 
+**归一化规则：**
+- 字符串形式支持逗号分隔或换行分隔，运行时会统一按行解析
+- 数组形式支持字符串数组与对象数组混用
+- 顶层 `folder_filter`、`regex_pattern`、`regex_replace` 会作为默认值补到未单独配置的链接
+- 对象数组中的局部配置优先级高于顶层全局配置
+
 ---
 
 ### 可选字段
 
 #### `save_dir` (字符串)
 默认保存目录。当分享链接后没有指定目录时使用。
+
+也支持别名键 `SAVE_DIR`。
 
 - **默认值：** `/AutoTransfer`
 - **示例：** `/我的网盘/自动转存`
@@ -121,6 +135,8 @@ BDUSS=xxx; STOKEN=yyy; BDUSS_BFESS=zzz; ...
 
 #### `wechat_webhook` (字符串)
 企业微信机器人 webhook URL，用于转存完成后发送通知。
+
+也支持别名键 `WECHAT_WEBHOOK`。
 
 **获取方法：**
 1. 打开企业微信
@@ -333,8 +349,7 @@ python save_baidu_cookies.py
 | 文件 | 说明 |
 |-----|-----|
 | `config.json` | 【实际使用】真实配置文件（不提交到 Git） |
-| `config.template.json` | 【快速开始】最简配置模板 |
-| `config.example.json` | 【参考】完整示例及说明 |
+| `config.example.json` | 【快速开始/参考】推荐复制后改名为 `config.json` 的完整示例 |
 
 ---
 
