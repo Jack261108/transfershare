@@ -61,3 +61,4 @@ test_*.py
 transfer_runner_local.py
 share_urls.txt
 config.txt
+.omc/
