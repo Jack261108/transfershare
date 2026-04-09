@@ -3,12 +3,12 @@
 
 # 🚀 百度网盘自动转存 GitHub Actions
 
-**基于 GitHub Actions 的百度网盘自动转存工具，每两小时自动执行转存任务**
+**基于 GitHub Actions 的百度网盘自动转存工具，每六小时自动执行转存任务**
 
 [![Python Version](https://img.shields.io/badge/Python-3.8%2B-blue?style=for-the-badge)](https://www.python.org/)
 [![GitHub Actions](https://img.shields.io/badge/GitHub-Actions-orange?style=for-the-badge&logo=github)](https://github.com/features/actions)
 [![License](https://img.shields.io/github/license/your-username/baidu-transfer-action?style=for-the-badge)](LICENSE)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/your-username/baidu-transfer-action/main.yml?style=for-the-badge)](https://github.com/your-username/baidu-transfer-action/actions)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/your-username/baidu-transfer-action/baidu-transfer.yml?style=for-the-badge)](https://github.com/your-username/baidu-transfer-action/actions/workflows/baidu-transfer.yml)
 
 </div>
 
@@ -18,7 +18,7 @@
 
 | 特性 | 描述 |
 |------|------|
-| 🤖 **自动化** | 每两小时自动执行转存任务 |
+| 🤖 **自动化** | 每六小时自动执行转存任务 |
 | 🔐 **密码支持** | 完美支持带密码的分享链接 |
 | 📦 **批量处理** | 一次性转存多个分享链接 |
 | 📁 **灵活保存** | 可为每个链接指定保存目录 |
@@ -286,14 +286,14 @@ https://pan.baidu.com/s/1example3?pwd=abcd /我的文件/资料
 
 ### 自动执行
 
-工作流会每两小时自动运行一次（UTC时间的偶数小时）。
+工作流会每六小时自动运行一次（UTC 时间的 0、6、12、18 点）。
 
 ### 手动执行
 
 1. 进入 `Actions` 标签
 2. 选择 "Baidu Transfer Task" 工作流
 3. 点击 "Run workflow" 按钮
-4. 选择分支（通常是 main）
+4. 选择分支（通常是 master）
 5. 点击绿色的 "Run workflow" 按钮
 
 ### 本地运行
