@@ -7,8 +7,8 @@
 
 [![Python Version](https://img.shields.io/badge/Python-3.8%2B-blue?style=for-the-badge)](https://www.python.org/)
 [![GitHub Actions](https://img.shields.io/badge/GitHub-Actions-orange?style=for-the-badge&logo=github)](https://github.com/features/actions)
-[![License](https://img.shields.io/github/license/your-username/baidu-transfer-action?style=for-the-badge)](LICENSE)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/your-username/baidu-transfer-action/baidu-transfer.yml?style=for-the-badge)](https://github.com/your-username/baidu-transfer-action/actions/workflows/baidu-transfer.yml)
+[![License](https://img.shields.io/github/license/Jack261108/transfershare?style=for-the-badge)](LICENSE)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/Jack261108/transfershare/baidu-transfer.yml?style=for-the-badge)](https://github.com/Jack261108/transfershare/actions/workflows/baidu-transfer.yml)
 
 </div>
 
@@ -227,19 +227,20 @@ python save_baidu_cookies.py --headless
     {
       "share_url": "https://pan.baidu.com/s/xxxxxx?pwd=abcd",
       "save_dir": "/资料"
-      // 使用全局 folder_filter: "2024|2025"
     },
     {
       "share_url": "https://pan.baidu.com/s/yyyyyy?pwd=efgh",
       "save_dir": "/视频",
-      "folder_filter": "2023"  // 覆盖全局设置，只转存 2023 文件夹
+      "folder_filter": "2023"
     }
   ],
   "save_dir": "/AutoTransfer",
-  "folder_filter": "2024|2025",  // 全局设置
+  "folder_filter": "2024|2025",
   "wechat_webhook": ""
 }
 ```
+- 第一个链接未单独设置 `folder_filter`，会继承全局 `"2024|2025"`
+- 第二个链接单独设置了 `"2023"`，会覆盖全局规则
 
 **配置说明：**
 - `share_urls` 为字符串时，支持用逗号或换行分隔，程序会自动归一化为按行处理
@@ -533,6 +534,6 @@ except Exception as e:
 
 如果这个项目对您有帮助，请考虑给它一个 ⭐️
 
-[![GitHub stars](https://img.shields.io/github/stars/your-username/baidu-transfer-action?style=social)](https://github.com/your-username/baidu-transfer-action/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/Jack261108/transfershare?style=social)](https://github.com/Jack261108/transfershare/stargazers)
 
 </div>

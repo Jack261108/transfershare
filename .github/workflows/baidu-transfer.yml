@@ -9,6 +9,12 @@ on:
 jobs:
   transfer:
     runs-on: ubuntu-latest
+    env:
+      BAIDU_COOKIES: ${{ secrets.BAIDU_COOKIES }}
+      SHARE_URLS: ${{ secrets.SHARE_URLS }}
+      SAVE_DIR: ${{ secrets.SAVE_DIR }}
+      WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
+      GITHUB_ACTIONS: 'true'
 
     steps:
     - name: Checkout repository
@@ -34,45 +40,19 @@ jobs:
       id: first_attempt
       timeout-minutes: 7
       continue-on-error: true
-      env:
-        BAIDU_COOKIES: ${{ secrets.BAIDU_COOKIES }}
-        SHARE_URLS: ${{ secrets.SHARE_URLS }}
-        SAVE_DIR: ${{ secrets.SAVE_DIR }}
-        WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
-        # GitHub Actions环境标识
-        GITHUB_ACTIONS: 'true'
       run: |
-        # 设置网络超时参数
-        export PYTHONUNBUFFERED=1
-        # 显示网络信息
-        echo "网络环境信息:"
-        curl -s https://ipinfo.io/json || echo "无法获取IP信息"
-        echo "========================================"
         echo "开始执行转存任务 (第一次尝试)"
-        echo "超时时间: 4分钟"
+        echo "超时时间: 7 分钟"
         echo "========================================"
-        # 执行转存任务
-        python transfer_runner.py
-        
+        ./scripts/run_transfer_task.sh --show-network-info
+
     - name: Run transfer task (Second attempt)
       if: steps.first_attempt.outcome == 'failure'
       timeout-minutes: 10
-      env:
-        BAIDU_COOKIES: ${{ secrets.BAIDU_COOKIES }}
-        SHARE_URLS: ${{ secrets.SHARE_URLS }}
-        SAVE_DIR: ${{ secrets.SAVE_DIR }}
-        WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
-        # GitHub Actions环境标识
-        GITHUB_ACTIONS: 'true'
       run: |
-        # 设置网络超时参数
-        export PYTHONUNBUFFERED=1
-        echo "========================================"
         echo "第一次尝试失败，开始第二次尝试"
-        echo "超时时间: 5分钟"
+        echo "超时时间: 10 分钟"
         echo "========================================"
-        # 等待5秒后重试，避免频率限制
         sleep 5
-        # 执行转存任务
-        python transfer_runner.py
+        ./scripts/run_transfer_task.sh
       
