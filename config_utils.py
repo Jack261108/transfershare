@@ -244,7 +244,6 @@ def build_share_urls_text(
 
 def load_runtime_config(config_path: Union[Path, str] = "config.json") -> Dict[str, Any]:
     path = resolve_config_path(config_path)
-    file_error: Optional[Exception] = None
 
     try:
         config = normalize_config_aliases(load_json_config(path))
@@ -253,8 +252,7 @@ def load_runtime_config(config_path: Union[Path, str] = "config.json") -> Dict[s
         if not config.get("share_urls"):
             raise ValueError("配置文件缺少 share_urls (share_urls/SHARE_URLS)")
         config["config_source"] = "file"
-    except Exception as exc:
-        file_error = exc
+    except FileNotFoundError as exc:
         config = load_env_config()
         if not config.get("cookies"):
             raise ValueError("BAIDU_COOKIES 环境变量未设置")
@@ -263,15 +261,15 @@ def load_runtime_config(config_path: Union[Path, str] = "config.json") -> Dict[s
         config["config_source"] = "env"
         config["config_load_warning"] = str(exc)
 
-    share_data = normalize_share_urls_value(config.get("share_urls"), config.get("save_dir"))
+    share_data = normalize_share_urls_value(
+        config.get("share_urls"), config.get("save_dir")
+    )
     config.update(share_data)
     config["share_configs"] = apply_global_share_defaults(
         share_data["share_configs"], config
     )
     config["share_count"] = len(config["share_configs"])
     config["config_path"] = str(path)
-    if file_error and config["config_source"] == "env":
-        config["config_load_warning"] = str(file_error)
     return config
 
 

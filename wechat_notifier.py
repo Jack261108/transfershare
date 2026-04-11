@@ -193,18 +193,9 @@ class WeChatNotifier:
         Returns:
             所有转存的文件列表
         """
-        transferred_files = result.get("transferred_files", [])
+        from utils import collect_transferred_files
 
-        # 处理批量转存的文件列表
-        if "results" in result:
-            all_transferred_files = []
-            for res in result["results"]:
-                if res.get("success") and not res.get("skipped"):
-                    files = res.get("transferred_files", [])
-                    all_transferred_files.extend(files)
-            transferred_files = all_transferred_files
-
-        return transferred_files
+        return collect_transferred_files(result)
 
     def send_transfer_result(
         self, result: Dict[str, Any], config: Optional[Dict[str, Any]]
@@ -250,6 +241,28 @@ class WeChatNotifier:
 **任务**: {task_desc}
 **保存目录**: {save_dir}
 **结果**: {result_msg}{files_info}"""
+        elif result.get("partial"):
+            error_msg = result.get("error", "部分转存成功")
+            rename_failed_files = result.get("rename_failed_files", [])
+            rename_failed_info = ""
+            if rename_failed_files:
+                shown = rename_failed_files[:MAX_FILES_TO_SHOW]
+                rename_failed_info = "\n**重命名失败**:\n" + "\n".join(
+                    [
+                        f"• {item.get('source_path')} -> {item.get('target_path')}: {item.get('error')}"
+                        for item in shown
+                    ]
+                )
+                if len(rename_failed_files) > MAX_FILES_TO_SHOW:
+                    rename_failed_info += (
+                        f"\n• ... 还有 {len(rename_failed_files) - MAX_FILES_TO_SHOW} 个文件"
+                    )
+            message = f"""## ⚠️ 百度网盘转存报告
+**时间**: {current_time}
+**状态**: ⚠️ 部分成功（按失败处理，退出码 1）
+**任务**: {task_desc}
+**保存目录**: {save_dir}
+**结果**: {error_msg}{rename_failed_info}"""
         else:
             # 转存失败
             error_msg = result.get("error", "未知错误")
@@ -275,30 +288,10 @@ class WeChatNotifier:
         if text is None:
             return text
 
-        import re
+        from utils import _mask_sensitive as shared_mask_sensitive
 
-        try:
-            from utils import mask_cookies
-        except Exception:
-            # 如果无法导入，使用简单的掩码
-            def mask_cookies(t: str) -> str:
-                return t
-
-        masked = mask_cookies(text)
-        masked = re.sub(
-            r"(\bpwd=)([A-Za-z0-9]{4})", r"\1***", masked, flags=re.IGNORECASE
-        )
-        masked = re.sub(r"(\buk\s*[:=]\s*)(\d+)", r"\1***", masked, flags=re.IGNORECASE)
-        masked = re.sub(
-            r"(\bshare_id\s*[:=]\s*)(\d+)", r"\1***", masked, flags=re.IGNORECASE
-        )
-        masked = re.sub(
-            r"(\bbdstoken\s*[:=]\s*)([A-Za-z0-9_-]+)",
-            r"\1***",
-            masked,
-            flags=re.IGNORECASE,
-        )
-        return masked
+        masked = shared_mask_sensitive(text)
+        return masked if masked is not None else text
 
     def send_error_notification(
         self, error_msg: str, config: Optional[Dict[str, Any]]

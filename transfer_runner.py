@@ -5,7 +5,7 @@ import os
 import sys
 from storage import BaiduStorage
 from wechat_notifier import WeChatNotifier
-from utils import handle_error_and_notify
+from utils import handle_error_and_notify, collect_transferred_files
 from logger import (
     get_logger,
     setup_logging,
@@ -155,37 +155,34 @@ def main():
             else:
                 if "results" in result:
                     logger.info(f"🎉 批量转存成功: {result['summary']}")
-                    successful_results = [
-                        item
-                        for item in result["results"]
-                        if item.get("success") and not item.get("skipped")
-                    ]
-                    all_transferred_files = []
-                    for res in successful_results:
-                        if "transferred_files" in res:
-                            all_transferred_files.extend(res["transferred_files"])
-
-                    if all_transferred_files:
-                        logger.info(f"转存文件列表 ({len(all_transferred_files)}个):")
-                        for index, file in enumerate(all_transferred_files[:10], 1):
-                            logger.info(f"  {index}. {file}")
-                        if len(all_transferred_files) > 10:
-                            logger.info(
-                                f"  ... 还有 {len(all_transferred_files) - 10} 个文件"
-                            )
                 else:
-                    transferred_files = result.get("transferred_files", [])
                     logger.info(
                         f"🎉 转存成功: {result.get('message', result.get('summary', '转存成功'))}"
                     )
-                    if transferred_files:
-                        logger.info(f"转存文件列表 ({len(transferred_files)}个):")
-                        for index, file in enumerate(transferred_files[:10], 1):
-                            logger.info(f"  {index}. {file}")
-                        if len(transferred_files) > 10:
-                            logger.info(
-                                f"  ... 还有 {len(transferred_files) - 10} 个文件"
-                            )
+
+                transferred_files = collect_transferred_files(result)
+                if transferred_files:
+                    logger.info(f"转存文件列表 ({len(transferred_files)}个):")
+                    for index, file in enumerate(transferred_files[:10], 1):
+                        logger.info(f"  {index}. {file}")
+                    if len(transferred_files) > 10:
+                        logger.info(
+                            f"  ... 还有 {len(transferred_files) - 10} 个文件"
+                        )
+        elif result.get("partial"):
+            error_msg = result.get("error", result.get("summary", "部分转存成功"))
+            logger.warning(f"⚠️ 转存部分成功（按失败处理，退出码 1）: {error_msg}")
+            rename_failed_files = result.get("rename_failed_files", [])
+            if rename_failed_files:
+                logger.warning(f"重命名失败文件 ({len(rename_failed_files)}个):")
+                for index, item in enumerate(rename_failed_files[:10], 1):
+                    logger.warning(
+                        f"  {index}. {item.get('source_path')} -> {item.get('target_path')}: {item.get('error')}"
+                    )
+                if len(rename_failed_files) > 10:
+                    logger.warning(
+                        f"  ... 还有 {len(rename_failed_files) - 10} 个文件"
+                    )
         else:
             error_msg = result.get("error", result.get("summary", "未知错误"))
             logger.error(f"❌ 转存失败: {error_msg}")

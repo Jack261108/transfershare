@@ -117,7 +117,7 @@ class LoadRuntimeConfigTests(unittest.TestCase):
         self.assertEqual(1, result["share_count"])
         self.assertNotIn("config_load_warning", result)
 
-    def test_load_runtime_config_falls_back_to_env(self):
+    def test_load_runtime_config_falls_back_to_env_only_when_file_is_missing(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = os.path.join(temp_dir, "missing.json")
             env = {
@@ -133,6 +133,42 @@ class LoadRuntimeConfigTests(unittest.TestCase):
         self.assertIn("配置文件不存在", result["config_load_warning"])
         self.assertEqual(1, result["share_count"])
         self.assertEqual("/FromEnv", result["share_configs"][0]["save_dir"])
+
+    def test_load_runtime_config_raises_when_config_file_contains_invalid_json(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = os.path.join(temp_dir, "config.json")
+            with open(config_path, "w", encoding="utf-8") as fh:
+                fh.write('{"cookies": "BDUSS=foo; STOKEN=bar", invalid')
+
+            with patch.dict(
+                os.environ,
+                {
+                    "BAIDU_COOKIES": "BDUSS=env; STOKEN=env",
+                    "SHARE_URLS": "https://pan.baidu.com/s/xyz_789",
+                },
+                clear=False,
+            ):
+                with self.assertRaises(json.JSONDecodeError):
+                    load_runtime_config(config_path)
+
+    def test_load_runtime_config_raises_when_existing_file_misses_required_fields(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = os.path.join(temp_dir, "config.json")
+            with open(config_path, "w", encoding="utf-8") as fh:
+                json.dump({"cookies": "BDUSS=foo; STOKEN=bar"}, fh)
+
+            with patch.dict(
+                os.environ,
+                {
+                    "BAIDU_COOKIES": "BDUSS=env; STOKEN=env",
+                    "SHARE_URLS": "https://pan.baidu.com/s/xyz_789",
+                },
+                clear=False,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError, "配置文件缺少 share_urls"
+                ):
+                    load_runtime_config(config_path)
 
 
 if __name__ == "__main__":

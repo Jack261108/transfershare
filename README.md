@@ -5,7 +5,7 @@
 
 **基于 GitHub Actions 的百度网盘自动转存工具，每六小时自动执行转存任务**
 
-[![Python Version](https://img.shields.io/badge/Python-3.8%2B-blue?style=for-the-badge)](https://www.python.org/)
+[![Python Version](https://img.shields.io/badge/Python-3.9%2B-blue?style=for-the-badge)](https://www.python.org/)
 [![GitHub Actions](https://img.shields.io/badge/GitHub-Actions-orange?style=for-the-badge&logo=github)](https://github.com/features/actions)
 [![License](https://img.shields.io/github/license/Jack261108/transfershare?style=for-the-badge)](LICENSE)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/Jack261108/transfershare/baidu-transfer.yml?style=for-the-badge)](https://github.com/Jack261108/transfershare/actions/workflows/baidu-transfer.yml)
@@ -152,7 +152,7 @@ python save_baidu_cookies.py --headless
 
 ### 本地配置文件 config.json（优先级高于环境变量）
 
-支持在项目根目录提供 `config.json`，程序将优先读取本地配置；当文件缺失或读取失败时，会自动回退到环境变量方案。
+支持在项目根目录提供 `config.json`，程序将优先读取本地配置；仅当文件缺失时，才会回退到环境变量方案。若文件存在但内容非法或缺少必需字段，程序会直接报错。
 
 - 文件路径：`./config.json`
 - 字段别名兼容：
@@ -211,7 +211,7 @@ python save_baidu_cookies.py --headless
       "save_dir": "/视频",
       "folder_filter": ["^课程", ".*资料.*"],
       "regex_pattern": ".*课程(\\d+).*\\.mp4$",
-      "regex_replace": "第$1课.mp4"
+      "regex_replace": "第\\1课.mp4"
     }
   ],
   "save_dir": "/AutoTransfer",
@@ -420,7 +420,7 @@ https://pan.baidu.com/s/1example3?pwd=abcd /我的文件/资料
       "share_url": "https://pan.baidu.com/s/xxxxx?pwd=abcd",
       "save_dir": "/资料",
       "regex_pattern": ".*课程(\\d+).*\\.mp4$",
-      "regex_replace": "第$1课.mp4"
+      "regex_replace": "第\\1课.mp4"
     }
   ]
 }

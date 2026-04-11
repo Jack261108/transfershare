@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import os
-import re
 
 from storage_rules import extract_file_info, should_include_folder
 from utils import handle_error_and_notify
@@ -18,7 +17,56 @@ class SharedPathService:
         return self.client.shared_paths(shared_url=share_url)
 
     @staticmethod
-    def _normalize_shared_file_info(shared_file):
+    def _resolve_shared_root(shared_paths):
+        root_candidates = []
+        for shared_path in shared_paths or []:
+            raw_path = getattr(shared_path, "path", "")
+            if not raw_path:
+                continue
+
+            normalized_path = str(raw_path).rstrip("/") or str(raw_path).strip()
+            if not normalized_path or normalized_path == "/":
+                continue
+
+            parent_path = os.path.dirname(normalized_path)
+            if parent_path and parent_path != "/":
+                root_candidates.append(parent_path)
+            elif getattr(shared_path, "is_dir", False):
+                root_candidates.append(normalized_path)
+
+        if not root_candidates:
+            return ""
+
+        try:
+            shared_root = os.path.commonpath(root_candidates)
+        except ValueError:
+            return ""
+
+        if shared_root in ("", "/"):
+            return ""
+        return shared_root.rstrip("/")
+
+    @staticmethod
+    def _trim_shared_root(shared_file_path, shared_root=""):
+        if not shared_file_path:
+            return ""
+
+        normalized_path = str(shared_file_path).strip()
+        if not normalized_path:
+            return ""
+
+        normalized_root = str(shared_root or "").rstrip("/")
+        if normalized_root:
+            root_prefix = f"{normalized_root}/"
+            if normalized_path == normalized_root:
+                return ""
+            if normalized_path.startswith(root_prefix):
+                return normalized_path[len(root_prefix) :].lstrip("/")
+
+        return normalized_path.lstrip("/")
+
+    @classmethod
+    def _normalize_shared_file_info(cls, shared_file, shared_root=""):
         if hasattr(shared_file, "_asdict"):
             shared_file_dict = shared_file._asdict()
         elif isinstance(shared_file, dict):
@@ -36,13 +84,12 @@ class SharedPathService:
         file_info = extract_file_info(shared_file_dict)
         if file_info:
             shared_file_path = getattr(shared_file, "path", file_info.get("path", ""))
-            if shared_file_path:
-                file_info["path"] = re.sub(
-                    r"^/sharelink\d*-\d+/?", "", shared_file_path
-                ).lstrip("/")
+            file_info["path"] = cls._trim_shared_root(shared_file_path, shared_root)
         return file_info
 
-    def list_shared_dir_files(self, path, uk, share_id, bdstoken, folder_filter=None):
+    def list_shared_dir_files(
+        self, path, uk, share_id, bdstoken, folder_filter=None, shared_root=""
+    ):
         files = []
         try:
             if not self.client:
@@ -86,11 +133,16 @@ class SharedPathService:
                     if should_include_folder(folder_name, folder_filter):
                         files.extend(
                             self.list_shared_dir_files(
-                                sub_file, uk, share_id, bdstoken, folder_filter
+                                sub_file,
+                                uk,
+                                share_id,
+                                bdstoken,
+                                folder_filter,
+                                shared_root,
                             )
                         )
                 else:
-                    file_info = self._normalize_shared_file_info(sub_file)
+                    file_info = self._normalize_shared_file_info(sub_file, shared_root)
                     if file_info:
                         files.append(file_info)
 
@@ -113,6 +165,7 @@ class SharedPathService:
         uk = shared_paths[0].uk
         share_id = shared_paths[0].share_id
         bdstoken = shared_paths[0].bdstoken
+        shared_root = self._resolve_shared_root(shared_paths)
         files = []
 
         for path in shared_paths:
@@ -121,12 +174,17 @@ class SharedPathService:
                 if should_include_folder(folder_name, folder_filter):
                     files.extend(
                         self.list_shared_dir_files(
-                            path, uk, share_id, bdstoken, folder_filter
+                            path,
+                            uk,
+                            share_id,
+                            bdstoken,
+                            folder_filter,
+                            shared_root,
                         )
                     )
                 continue
 
-            file_info = self._normalize_shared_file_info(path)
+            file_info = self._normalize_shared_file_info(path, shared_root)
             if file_info:
                 files.append(file_info)
 

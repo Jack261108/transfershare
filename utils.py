@@ -25,11 +25,43 @@ _SHARE_ID_PATTERN = re.compile(r"(\bshare_id\s*[:=]\s*)(\d+)", re.IGNORECASE)
 _BDSTOKEN_PATTERN = re.compile(
     r"(\bbdstoken\s*[:=]\s*)([A-Za-z0-9_-]+)", re.IGNORECASE
 )
+_SHARE_LINK_TOKEN_PATTERN = re.compile(
+    r"(https?://pan\.baidu\.com/s/)([A-Za-z0-9_-]+)", re.IGNORECASE
+)
+_SHARE_SURL_TOKEN_PATTERN = re.compile(
+    r"(\bsurl=)([A-Za-z0-9_-]+)", re.IGNORECASE
+)
+
+
+def mask_share_url(text: Optional[str]) -> Optional[str]:
+    """掩码百度网盘分享链接，仅隐藏链接标识。"""
+    if text is None:
+        return text
+
+    masked = _SHARE_LINK_TOKEN_PATTERN.sub(r"\1***", str(text))
+    return _SHARE_SURL_TOKEN_PATTERN.sub(r"\1***", masked)
+
+
+
+def collect_transferred_files(result: Optional[Dict[str, Any]]) -> List[str]:
+    """从单个或批量转存结果中提取成功转存的文件列表。"""
+    if not isinstance(result, dict):
+        return []
+
+    if "results" not in result:
+        return list(result.get("transferred_files", []))
+
+    transferred_files = []
+    for item in result["results"]:
+        if item.get("success") and not item.get("skipped"):
+            transferred_files.extend(item.get("transferred_files", []))
+    return transferred_files
+
 
 
 def _mask_sensitive(text: Optional[str]) -> Optional[str]:
     """
-    掩码敏感信息（pwd, uk, share_id, bdstoken 等）
+    掩码敏感信息（pwd, uk, share_id, bdstoken、分享链接等）
     注意：此函数会调用 mask_cookies，但通过延迟加载避免循环导入
     """
     if text is None:
@@ -43,6 +75,8 @@ def _mask_sensitive(text: Optional[str]) -> Optional[str]:
     masked = _UK_PATTERN.sub(r"\1***", masked)
     masked = _SHARE_ID_PATTERN.sub(r"\1***", masked)
     masked = _BDSTOKEN_PATTERN.sub(r"\1***", masked)
+    masked = _SHARE_LINK_TOKEN_PATTERN.sub(r"\1***", masked)
+    masked = _SHARE_SURL_TOKEN_PATTERN.sub(r"\1***", masked)
 
     return masked
 

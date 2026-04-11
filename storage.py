@@ -9,7 +9,7 @@ import posixpath
 
 # 添加 WeChatNotifier 和工具方法导入
 from wechat_notifier import WeChatNotifier
-from utils import handle_error_and_notify, ErrorCollector
+from utils import handle_error_and_notify, ErrorCollector, mask_share_url
 from config_utils import parse_share_links_from_text
 from storage_client import BaiduClientAdapter
 from storage_errors import classify_storage_error, is_rate_limit_error, parse_share_error
@@ -112,8 +112,9 @@ class BaiduStorage:
         )
         return {
             "index": index,
-            "share_url": invalid_share_url,
+            "share_url": mask_share_url(invalid_share_url) or invalid_share_url,
             "success": False,
+            "partial": False,
             "error": error_msg,
         }
 
@@ -122,11 +123,13 @@ class BaiduStorage:
             progress_callback(level, f"【{index}/{total_count}】{message}")
 
     def _build_result_record(self, index, share_url, save_dir, result):
+        masked_share_url = mask_share_url(share_url) or share_url
         record = {
             "index": index,
-            "share_url": share_url,
+            "share_url": masked_share_url,
             "save_dir": save_dir,
             "success": result.get("success", False),
+            "partial": result.get("partial", False),
         }
         if result.get("success"):
             if result.get("skipped"):
@@ -135,6 +138,13 @@ class BaiduStorage:
             else:
                 record["message"] = result.get("message", "转存成功")
                 record["transferred_files"] = result.get("transferred_files", [])
+        elif result.get("partial"):
+            record["message"] = result.get("message", "部分转存成功")
+            record["transferred_files"] = result.get("transferred_files", [])
+            record["rename_failed_files"] = result.get("rename_failed_files", [])
+            record["rename_failed_count"] = result.get("rename_failed_count", 0)
+            record["completed_count"] = result.get("completed_count", 0)
+            record["transfer_success_count"] = result.get("transfer_success_count", 0)
         else:
             record["error"] = result.get("error", "未知错误")
         return record
@@ -145,16 +155,20 @@ class BaiduStorage:
                 counters["skipped_count"] += 1
             else:
                 counters["success_count"] += 1
+        elif result_record.get("partial"):
+            counters["partial_count"] += 1
         else:
             counters["failed_count"] += 1
 
-    def _handle_batch_failure(self, index, share_url, save_dir, error_msg):
+    def _handle_batch_failure(self, index, share_url, save_dir, error_msg, partial=False):
+        masked_share_url = mask_share_url(share_url) or share_url
+        detail_title = "批量转存中单个链接部分成功" if partial else "批量转存中单个链接失败"
         detailed_error = (
-            f"批量转存中单个链接失败\n分享链接: {share_url}\n保存目录: {save_dir}\n错误信息: {error_msg}"
+            f"{detail_title}\n分享链接: {masked_share_url}\n保存目录: {save_dir}\n错误信息: {error_msg}"
         )
         handle_error_and_notify(
             ValueError(detailed_error),
-            f"批量转存单个链接失败: 第 {index} 个链接",
+            f"批量转存单个链接{'部分成功' if partial else '失败'}: 第 {index} 个链接",
             self.wechat_notifier,
             None,
             collect=True,
@@ -169,6 +183,7 @@ class BaiduStorage:
             return result_record
 
         share_url = config["share_url"]
+        masked_share_url = mask_share_url(share_url) or share_url
         pwd = config.get("pwd")
         save_dir = config.get("save_dir")
         regex_pattern = config.get("regex_pattern")
@@ -176,7 +191,7 @@ class BaiduStorage:
         folder_filter = config.get("folder_filter")
 
         self._notify_batch_progress(
-            "info", index, total_count, f"处理分享链接: {share_url}", progress_callback
+            "info", index, total_count, f"处理分享链接: {masked_share_url}", progress_callback
         )
 
         result = self.transfer_share(
@@ -207,6 +222,12 @@ class BaiduStorage:
                     f"成功: {result_record.get('message')}",
                     progress_callback,
                 )
+        elif result.get("partial"):
+            message = result_record.get("message", result.get("error", "部分成功"))
+            self._notify_batch_progress(
+                "warning", index, total_count, f"部分成功: {message}", progress_callback
+            )
+            self._handle_batch_failure(index, share_url, save_dir, message, partial=True)
         else:
             error_msg = result_record.get("error", "未知错误")
             self._notify_batch_progress(
@@ -216,10 +237,14 @@ class BaiduStorage:
 
         return result_record
 
-    def _build_batch_summary(self, total_count, success_count, failed_count, skipped_count):
+    def _build_batch_summary(
+        self, total_count, success_count, partial_count, failed_count, skipped_count
+    ):
         summary_parts = []
         if success_count > 0:
             summary_parts.append(f"成功 {success_count} 个")
+        if partial_count > 0:
+            summary_parts.append(f"部分成功 {partial_count} 个")
         if skipped_count > 0:
             summary_parts.append(f"跳过 {skipped_count} 个")
         if failed_count > 0:
@@ -242,9 +267,11 @@ class BaiduStorage:
                 )
                 return {
                     "success": False,
+                    "partial": False,
                     "error": error_msg,
                     "total_count": 0,
                     "success_count": 0,
+                    "partial_count": 0,
                     "failed_count": 0,
                     "skipped_count": 0,
                     "results": [],
@@ -252,7 +279,12 @@ class BaiduStorage:
 
             self._local_files_cache.clear()
             total_count = len(share_configs)
-            counters = {"success_count": 0, "failed_count": 0, "skipped_count": 0}
+            counters = {
+                "success_count": 0,
+                "partial_count": 0,
+                "failed_count": 0,
+                "skipped_count": 0,
+            }
             results = []
 
             for index, config in enumerate(share_configs, 1):
@@ -268,11 +300,13 @@ class BaiduStorage:
                     error_info = classify_storage_error(e)
                     error_msg = f"处理第 {index} 个分享链接时发生异常: {error_info.message}"
                     share_url = config.get("share_url", "未知") if isinstance(config, dict) else "未知"
+                    masked_share_url = mask_share_url(share_url) or share_url
                     results.append(
                         {
                             "index": index,
-                            "share_url": share_url,
+                            "share_url": masked_share_url,
                             "success": False,
+                            "partial": False,
                             "error": error_msg,
                         }
                     )
@@ -282,32 +316,56 @@ class BaiduStorage:
                     )
                     handle_error_and_notify(
                         e,
-                        f"处理第 {index} 个分享链接时发生异常\n分享链接: {share_url}",
+                        f"处理第 {index} 个分享链接时发生异常\n分享链接: {masked_share_url}",
                         self.wechat_notifier,
                         None,
                         collect=True,
                     )
 
+            has_partial_items = counters["partial_count"] > 0
+            has_failed_items = counters["failed_count"] > 0
+            has_success = counters["success_count"] > 0
+            has_skipped = counters["skipped_count"] > 0
+            overall_partial = (has_success or has_skipped) and (
+                has_partial_items or has_failed_items
+            )
+            all_rename_failed_files = []
+            for item in results:
+                all_rename_failed_files.extend(item.get("rename_failed_files", []))
+
             summary = self._build_batch_summary(
                 total_count,
                 counters["success_count"],
+                counters["partial_count"],
                 counters["failed_count"],
                 counters["skipped_count"],
             )
             if progress_callback:
-                if counters["success_count"] > 0 or counters["skipped_count"] > 0:
+                if overall_partial or has_partial_items:
+                    progress_callback(
+                        "warning",
+                        summary + "（部分成功按失败退出，退出码 1）",
+                    )
+                elif has_success or has_skipped:
                     progress_callback("success", summary)
                 else:
                     progress_callback("error", summary)
 
+            overall_success = (has_success or has_skipped) and not (
+                has_partial_items or has_failed_items
+            )
             return {
-                "success": counters["success_count"] > 0 or counters["skipped_count"] > 0,
-                "skipped": counters["skipped_count"] > 0 and counters["success_count"] == 0,
+                "success": overall_success,
+                "partial": overall_partial or (has_partial_items and not overall_success),
+                "skipped": has_skipped and not has_success and not has_partial_items and not has_failed_items,
                 "total_count": total_count,
                 "success_count": counters["success_count"],
+                "partial_count": counters["partial_count"],
                 "failed_count": counters["failed_count"],
                 "skipped_count": counters["skipped_count"],
                 "results": results,
+                "rename_failed_files": all_rename_failed_files,
+                "rename_failed_count": len(all_rename_failed_files),
                 "summary": summary,
                 "message": summary,
             }
@@ -352,9 +410,11 @@ class BaiduStorage:
                     )
                     return {
                         "success": False,
+                        "partial": False,
                         "error": error_msg,
                         "total_count": 0,
                         "success_count": 0,
+                        "partial_count": 0,
                         "failed_count": 0,
                         "skipped_count": 0,
                         "results": [],
@@ -381,9 +441,11 @@ class BaiduStorage:
                 )
                 return {
                     "success": False,
+                    "partial": False,
                     "error": error_msg,
                     "total_count": 0,
                     "success_count": 0,
+                    "partial_count": 0,
                     "failed_count": 0,
                     "skipped_count": 0,
                     "results": [],
@@ -393,8 +455,9 @@ class BaiduStorage:
         return self.path_service.normalize_path(save_dir) if save_dir else save_dir
 
     def _load_share_context(self, share_url, pwd, folder_filter, progress_callback=None):
+        masked_share_url = mask_share_url(share_url) or share_url
         if progress_callback:
-            progress_callback("info", f"【步骤1/4】访问分享链接: {share_url}")
+            progress_callback("info", f"【步骤1/4】访问分享链接: {masked_share_url}")
         if pwd and progress_callback:
             progress_callback("info", "使用密码访问分享链接")
 
@@ -494,35 +557,66 @@ class BaiduStorage:
 
             clean_normalized = self.path_service.normalize_path(clean_path.lstrip("/"))
             final_normalized = self.path_service.normalize_path(final_path.lstrip("/"))
-            existing_paths = []
-            if clean_normalized in local_files_dict:
-                existing_paths.append(clean_normalized)
-            if final_normalized in local_files_dict and final_normalized not in existing_paths:
-                existing_paths.append(final_normalized)
+            need_rename = final_path != clean_path
 
-            if existing_paths:
-                src_md5 = file_info.get("md5") if isinstance(file_info, dict) else None
-                if src_md5:
-                    existing_md5s = [local_files_dict.get(path) for path in existing_paths]
-                    if any(dest_md5 and dest_md5 == src_md5 for dest_md5 in existing_md5s):
+            src_md5 = file_info.get("md5") if isinstance(file_info, dict) else None
+            source_md5 = local_files_dict.get(clean_normalized)
+            target_md5 = local_files_dict.get(final_normalized)
+            source_exists = clean_normalized in local_files_dict
+            target_exists = final_normalized in local_files_dict
+
+            if not need_rename:
+                if source_exists:
+                    if src_md5:
+                        if source_md5 == src_md5:
+                            if progress_callback:
+                                progress_callback(
+                                    "info", f"文件已存在且内容相同（MD5 相同），跳过: {final_path}"
+                                )
+                            continue
+                        if source_md5 is None:
+                            if progress_callback:
+                                progress_callback(
+                                    "info", f"文件已存在，无法获取目标文件 MD5，跳过: {final_path}"
+                                )
+                            continue
                         if progress_callback:
                             progress_callback(
-                                "info", f"文件已存在且内容相同（MD5 相同），跳过: {final_path}"
-                            )
-                        continue
-                    if any(dest_md5 is None for dest_md5 in existing_md5s):
-                        if progress_callback:
-                            progress_callback(
-                                "info", f"文件已存在，无法获取目标文件 MD5，跳过: {final_path}"
+                                "warning", f"同路径已存在,但内容不同(md5不同),跳过： {final_path}"
                             )
                         continue
                     if progress_callback:
+                        progress_callback("info", f"文件已存在（无MD5校验），跳过: {final_path}")
+                    continue
+            elif target_exists:
+                if src_md5 and target_md5 == src_md5:
+                    if progress_callback:
                         progress_callback(
-                            "warning", f"同路径已存在,但内容不同(md5不同),跳过： {final_path}"
+                            "info", f"重命名目标已存在且内容相同（MD5 相同），跳过: {final_path}"
+                        )
+                    continue
+                if src_md5 and target_md5 is None:
+                    if progress_callback:
+                        progress_callback(
+                            "info", f"重命名目标已存在，无法获取目标文件 MD5，跳过: {final_path}"
                         )
                     continue
                 if progress_callback:
-                    progress_callback("info", f"文件已存在（无MD5校验），跳过: {final_path}")
+                    progress_callback(
+                        "warning", f"重命名目标已存在，跳过转存: {final_path}"
+                    )
+                continue
+            elif source_exists:
+                if src_md5 and source_md5 == src_md5:
+                    if progress_callback:
+                        progress_callback(
+                            "info", f"源路径已存在且内容相同，跳过重复转存: {clean_path} -> {final_path}"
+                        )
+                    continue
+                if progress_callback:
+                    progress_callback(
+                        "warning", f"源路径已存在，跳过重复转存以避免副本: {clean_path} -> {final_path}"
+                    )
                 continue
 
             if target_dir is None or clean_path is None:
@@ -530,7 +624,6 @@ class BaiduStorage:
 
             target_path = posixpath.join(target_dir, clean_path)
             dir_path = posixpath.dirname(target_path).replace("\\", "/")
-            need_rename = final_path != clean_path
             transfer_list.append(
                 (file_info["fs_id"], dir_path, clean_path, final_path, need_rename)
             )
@@ -683,9 +776,12 @@ class BaiduStorage:
 
     def _rename_transferred_files(self, successful_transfer_items, target_dir, progress_callback=None):
         renamed_files = []
+        rename_failed_files = []
+        completed_count = 0
         for _, dir_path, clean_path, final_path, need_rename in successful_transfer_items:
             if not need_rename:
                 renamed_files.append(final_path)
+                completed_count += 1
                 continue
             try:
                 original_full_path = posixpath.join(target_dir, clean_path)
@@ -701,6 +797,7 @@ class BaiduStorage:
 
                 self.client.rename(original_full_path, final_full_path)
                 renamed_files.append(final_path)
+                completed_count += 1
                 time.sleep(RENAME_DELAY)
             except Exception as e:
                 error_info = classify_storage_error(e)
@@ -716,21 +813,67 @@ class BaiduStorage:
                     None,
                     collect=True,
                 )
-                renamed_files.append(clean_path)
-        return renamed_files
+                rename_failed_files.append(
+                    {
+                        "source_path": clean_path,
+                        "target_path": final_path,
+                        "error": error_info.message,
+                    }
+                )
+        return {
+            "transferred_files": renamed_files,
+            "rename_failed_files": rename_failed_files,
+            "rename_failed_count": len(rename_failed_files),
+            "completed_count": completed_count,
+        }
 
-    def _build_transfer_result(self, success_count, total_files, renamed_files, progress_callback=None):
-        if success_count == total_files:
-            message = f"成功转存 {success_count}/{total_files} 个文件"
+    def _build_transfer_result(
+        self,
+        transfer_success_count,
+        total_files,
+        rename_result,
+        progress_callback=None,
+    ):
+        renamed_files = rename_result.get("transferred_files", [])
+        rename_failed_files = rename_result.get("rename_failed_files", [])
+        rename_failed_count = rename_result.get("rename_failed_count", 0)
+        completed_count = rename_result.get("completed_count", 0)
+
+        if completed_count == total_files:
+            message = f"成功转存 {completed_count}/{total_files} 个文件"
             if progress_callback:
                 progress_callback("success", f"转存完成，{message}")
-            return {"success": True, "message": message, "transferred_files": renamed_files}
+            return {
+                "success": True,
+                "partial": False,
+                "message": message,
+                "transferred_files": renamed_files,
+                "completed_count": completed_count,
+                "transfer_success_count": transfer_success_count,
+                "rename_failed_count": rename_failed_count,
+            }
 
-        if success_count > 0:
-            message = f"部分转存成功，成功转存 {success_count}/{total_files} 个文件"
+        if completed_count > 0 or transfer_success_count > 0:
+            if rename_failed_count > 0:
+                message = (
+                    f"部分转存成功，成功完成 {completed_count}/{total_files} 个文件，"
+                    f"另有 {rename_failed_count} 个文件转存后重命名失败"
+                )
+            else:
+                message = f"部分转存成功，成功完成 {completed_count}/{total_files} 个文件"
             if progress_callback:
                 progress_callback("warning", message)
-            return {"success": True, "message": message, "transferred_files": renamed_files}
+            return {
+                "success": False,
+                "partial": True,
+                "message": message,
+                "error": message,
+                "transferred_files": renamed_files,
+                "rename_failed_files": rename_failed_files,
+                "rename_failed_count": rename_failed_count,
+                "completed_count": completed_count,
+                "transfer_success_count": transfer_success_count,
+            }
 
         handle_error_and_notify(
             ValueError("转存失败，没有文件成功转存"),
@@ -739,7 +882,15 @@ class BaiduStorage:
             None,
             collect=True,
         )
-        return {"success": False, "error": "转存失败，没有文件成功转存"}
+        return {
+            "success": False,
+            "partial": False,
+            "error": "转存失败，没有文件成功转存",
+            "rename_failed_files": rename_failed_files,
+            "rename_failed_count": rename_failed_count,
+            "completed_count": completed_count,
+            "transfer_success_count": transfer_success_count,
+        }
 
     def transfer_share(
         self,
@@ -752,14 +903,15 @@ class BaiduStorage:
         folder_filter=None,
     ):
         """转存分享文件"""
+        masked_share_url = mask_share_url(share_url) or share_url
         with ErrorCollector(
-            f"转存分享文件: {share_url}", self.wechat_notifier, None, auto_send=False
+            f"转存分享文件: {masked_share_url}", self.wechat_notifier, None, auto_send=False
         ):
             if not self.client:
                 error_msg = "客户端未初始化或初始化失败"
                 handle_error_and_notify(
                     ValueError(error_msg),
-                    f"转存分享文件: 客户端不可用\n分享链接: {share_url}",
+                    f"转存分享文件: 客户端不可用\n分享链接: {masked_share_url}",
                     self.wechat_notifier,
                     None,
                     collect=True,
@@ -808,13 +960,13 @@ class BaiduStorage:
                     save_dir,
                     progress_callback,
                 )
-                renamed_files = self._rename_transferred_files(
+                rename_result = self._rename_transferred_files(
                     successful_transfer_items, save_dir, progress_callback
                 )
                 return self._build_transfer_result(
                     success_count,
                     len(transfer_list),
-                    renamed_files,
+                    rename_result,
                     progress_callback,
                 )
             except Exception as e:
@@ -822,6 +974,7 @@ class BaiduStorage:
 
     def get_share_folder_name(self, share_url, pwd=None):
         """获取分享链接的主文件夹名称"""
+        masked_share_url = mask_share_url(share_url) or share_url
         try:
             if not self.client:
                 error_msg = "客户端未初始化或初始化失败"
@@ -839,7 +992,7 @@ class BaiduStorage:
                 error_msg = "获取分享文件列表失败"
                 handle_error_and_notify(
                     ValueError(error_msg),
-                    f"获取分享文件列表失败\n分享链接: {share_url}",
+                    f"获取分享文件列表失败\n分享链接: {masked_share_url}",
                     self.wechat_notifier,
                     None,
                     collect=True,
@@ -860,7 +1013,7 @@ class BaiduStorage:
         except Exception as e:
             handle_error_and_notify(
                 e,
-                f"获取分享文件夹名称时发生异常\n分享链接: {share_url}",
+                f"获取分享文件夹名称时发生异常\n分享链接: {masked_share_url}",
                 self.wechat_notifier,
                 None,
                 collect=True,
